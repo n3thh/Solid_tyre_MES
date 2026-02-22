@@ -31,6 +31,8 @@ class AdminDashboard:
         self.tab_users = tk.Frame(nb, bg="white")
         self.tab_qc = tk.Frame(nb, bg="white")
         self.tab_plan = tk.Frame(nb, bg="white")
+        self.tab_master = tk.Frame(nb, bg="white") # NEW MASTER ORDERS TAB
+        self.tab_catalog = tk.Frame(nb, bg="white") # NEW TYRE CATALOG TAB
         self.tab_spec = tk.Frame(nb, bg="white")
         self.tab_bead = tk.Frame(nb, bg="white")
         self.tab_mould = tk.Frame(nb, bg="white")
@@ -39,6 +41,8 @@ class AdminDashboard:
         nb.add(self.tab_users, text=" 👥 Users ")
         nb.add(self.tab_qc, text=" 1. Raw Materials ")
         nb.add(self.tab_plan, text=" 2. Prod Plan ")
+        nb.add(self.tab_master, text=" 📦 Master Orders ") # ADDED TO NOTEBOOK
+        nb.add(self.tab_catalog, text=" 📚 Tyre Master ")
         nb.add(self.tab_spec, text=" 3. Tyre Specs ")
         nb.add(self.tab_bead, text=" 4. Bead Master ")
         nb.add(self.tab_mould, text=" 5. Moulds ")
@@ -47,6 +51,8 @@ class AdminDashboard:
         self.setup_user_tab()
         self.setup_qc_tab()
         self.setup_plan_tab()
+        self.setup_master_orders_tab() # SETUP CALL
+        self.setup_catalog_tab() # SETUP CALL
         self.setup_spec_tab()
         self.setup_bead_tab()
         self.setup_mould_tab()
@@ -71,13 +77,11 @@ class AdminDashboard:
         self.combo_role = ttk.Combobox(frame_input, values=["OPERATOR", "SUPERVISOR", "MANAGER", "QC", "ADMIN"], state="readonly", font=("Segoe UI", 11), width=15)
         self.combo_role.current(0); self.combo_role.grid(row=1, column=2, padx=5, pady=5)
 
-        # --- NEW: Password Field (Column 3) ---
         tk.Label(frame_input, text="Password:", font=("Segoe UI", 9, "bold"), bg="#ECF0F1").grid(row=0, column=3, sticky="w")
         self.ent_pwd = tk.Entry(frame_input, font=("Segoe UI", 11), width=15)
-        self.ent_pwd.insert(0, "1234") # Sets default to 1234
+        self.ent_pwd.insert(0, "1234") 
         self.ent_pwd.grid(row=1, column=3, padx=5, pady=5)
 
-        # --- SHIFTED: Buttons (Moved to Column 4) ---
         btn_frame = tk.Frame(frame_input, bg="#ECF0F1"); btn_frame.grid(row=1, column=4, padx=15, pady=5)
         tk.Button(btn_frame, text="➕ SAVE", command=self.add_user, bg="#27AE60", fg="white").pack(side="left", padx=5)
         tk.Button(btn_frame, text="❌ DELETE", command=self.delete_user, bg="#C0392B", fg="white").pack(side="left", padx=5)
@@ -106,7 +110,6 @@ class AdminDashboard:
         role = self.combo_role.get()
         pwd = self.ent_pwd.get().strip()
         
-        # Fallback if admin deletes the text completely
         if not pwd: pwd = "1234" 
 
         if not uid or not name: 
@@ -122,7 +125,7 @@ class AdminDashboard:
             self.ent_uid.delete(0, tk.END)
             self.ent_name.delete(0, tk.END)
             self.ent_pwd.delete(0, tk.END)
-            self.ent_pwd.insert(0, "1234") # Reset to default for the next entry
+            self.ent_pwd.insert(0, "1234")
 
     def delete_user(self):
         sel = self.tree_users.selection()
@@ -150,30 +153,226 @@ class AdminDashboard:
     def refresh_qc_list(self): self._refresh_tree(self.tree_qc, "SELECT batch_no, material_type, status FROM raw_material_qc ORDER BY batch_no DESC LIMIT 50")
     def download_sample_qc(self): self._save_csv("Sample_Materials.csv", ["BATCH_NO", "MATERIAL_TYPE", "STATUS"], [["BATCH001", "RUBBER", "APPROVED"]])
 
-    # --- 2. PROD PLAN (UPDATED WITH REQUIREMENT) ---
-    
+# --- 2. DAILY PROD PLAN (THE LIVE BOARD) ---
     def setup_plan_tab(self):
-        # 1. The standard upload UI you already built
-        self._build_upload_ui(self.tab_plan, "Daily Production Plan", self.upload_plan, self.download_sample_plan, ["Press", "Daylight", "Size", "Grade", "Req"], self.refresh_plan_list)
+        # Split Screen Layout
+        f_left = tk.Frame(self.tab_plan, bg="#F4F6F7", width=350, relief="ridge", bd=1)
+        f_left.pack(side="left", fill="y", padx=10, pady=10)
         
-        # 2. NEW: Extra Frame just for the Smart Parser button
-        f_extra = tk.Frame(self.tab_plan, bg="white")
-        f_extra.pack(pady=5)
-        tk.Button(f_extra, text="🤖 PARSE DOCX ORDER", command=self.open_smart_parser, bg="#8E44AD", fg="white", font=("Segoe UI", 10, "bold")).pack()
+        f_right = tk.Frame(self.tab_plan, bg="white")
+        f_right.pack(side="right", fill="both", expand=True, padx=10, pady=10)
 
-        # 3. Updated Treeview Columns (Your existing code continues here...)
-        self.tree_plan = ttk.Treeview(self.tab_plan, columns=("Press", "DL", "Size", "Grade", "Req"), show="headings", height=15)
+        # ================= LEFT: MACHINE ASSIGNER =================
+        tk.Label(f_left, text="🛠️ Assign Machine", font=("Segoe UI", 14, "bold"), bg="#F4F6F7", fg="#2980B9").pack(pady=(10, 5))
 
-        # Updated Treeview Columns
-        self.tree_plan = ttk.Treeview(self.tab_plan, columns=("Press", "DL", "Size", "Grade", "Req"), show="headings", height=15)
-        self.tree_plan.heading("Press", text="Press"); self.tree_plan.column("Press", width=80)
-        self.tree_plan.heading("DL", text="Daylight"); self.tree_plan.column("DL", width=80)
-        self.tree_plan.heading("Size", text="Tyre Size"); self.tree_plan.column("Size", width=150)
-        self.tree_plan.heading("Grade", text="Grade"); self.tree_plan.column("Grade", width=100)
-        self.tree_plan.heading("Req", text="Req (Qty)"); self.tree_plan.column("Req", width=80) # New Column
+        # --- TOGGLE SWITCH ---
+        self.plan_mode = tk.StringVar(value="MTO")
+        f_toggle = tk.Frame(f_left, bg="#F4F6F7")
+        f_toggle.pack(fill="x", padx=15, pady=5)
+        tk.Radiobutton(f_toggle, text="📦 Fulfill Master Order", variable=self.plan_mode, value="MTO", command=self.toggle_plan_mode, bg="#F4F6F7", font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        tk.Radiobutton(f_toggle, text="🏭 Make to Stock (Local)", variable=self.plan_mode, value="MTS", command=self.toggle_plan_mode, bg="#F4F6F7", font=("Segoe UI", 9, "bold")).pack(anchor="w")
+
+        # --- MTO FRAME (Master Orders) ---
+        self.f_mto = tk.Frame(f_left, bg="#F4F6F7")
+        tk.Label(self.f_mto, text="Select Master Order:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=15)
+        self.plan_mo_cb = ttk.Combobox(self.f_mto, state="readonly", font=("Segoe UI", 10))
+        self.plan_mo_cb.pack(fill="x", padx=15, pady=5)
+        self.plan_mo_cb.bind("<<ComboboxSelected>>", self.autofill_plan_from_order)
+
+        # --- MTS FRAME (Cascading Dropdowns) ---
+        self.f_mts = tk.Frame(f_left, bg="#F4F6F7")
+        tk.Label(self.f_mts, text="Size:", bg="#F4F6F7", font=("Segoe UI", 8, "bold")).grid(row=0, column=0, sticky="w", padx=(15,2))
+        self.cb_size = ttk.Combobox(self.f_mts, state="readonly", width=12); self.cb_size.grid(row=1, column=0, padx=(15,2), pady=2)
+        self.cb_size.bind("<<ComboboxSelected>>", self.on_size_select)
+
+        tk.Label(self.f_mts, text="Core:", bg="#F4F6F7", font=("Segoe UI", 8, "bold")).grid(row=0, column=1, sticky="w", padx=2)
+        self.cb_core = ttk.Combobox(self.f_mts, state="readonly", width=8); self.cb_core.grid(row=1, column=1, padx=2, pady=2)
+        self.cb_core.bind("<<ComboboxSelected>>", self.on_core_select)
+
+        tk.Label(self.f_mts, text="Brand:", bg="#F4F6F7", font=("Segoe UI", 8, "bold")).grid(row=2, column=0, sticky="w", padx=(15,2))
+        self.cb_brand = ttk.Combobox(self.f_mts, state="readonly", width=12); self.cb_brand.grid(row=3, column=0, padx=(15,2), pady=2)
+        self.cb_brand.bind("<<ComboboxSelected>>", self.on_brand_select)
+
+        tk.Label(self.f_mts, text="Quality:", bg="#F4F6F7", font=("Segoe UI", 8, "bold")).grid(row=2, column=1, sticky="w", padx=2)
+        self.cb_qual = ttk.Combobox(self.f_mts, state="readonly", width=8); self.cb_qual.grid(row=3, column=1, padx=2, pady=2)
+        self.cb_qual.bind("<<ComboboxSelected>>", self.on_quality_select)
+
+        # --- SHARED ASSIGNMENT FRAME ---
+        self.f_shared = tk.Frame(f_left, bg="#F4F6F7")
+        self.f_shared.pack(fill="x", pady=5)
+
+        tk.Label(self.f_shared, text="Press ID (e.g., P1):", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=15)
+        self.plan_press = tk.Entry(self.f_shared, font=("Segoe UI", 11))
+        self.plan_press.pack(fill="x", padx=15, pady=2)
+
+        tk.Label(self.f_shared, text="Daylight:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=15)
+        self.plan_dl = ttk.Combobox(self.f_shared, values=["TOP", "BOTTOM", "SINGLE", "1", "2"], font=("Segoe UI", 11))
+        self.plan_dl.pack(fill="x", padx=15, pady=2)
+
+        tk.Label(self.f_shared, text="Target Green Wt (kg):", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=15)
+        self.plan_wt = tk.Entry(self.f_shared, font=("Segoe UI", 11))
+        self.plan_wt.pack(fill="x", padx=15, pady=2)
+
+        tk.Label(self.f_shared, text="Target Qty:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=15)
+        self.plan_qty = tk.Entry(self.f_shared, font=("Segoe UI", 11))
+        self.plan_qty.pack(fill="x", padx=15, pady=2)
+
+        self.hidden_plan_data = {}
+        self.current_baseline_weight = 0.0
+
+        tk.Button(f_left, text="🚀 ASSIGN TO PRESS", command=self.add_manual_plan, bg="#27AE60", fg="white", font=("Segoe UI", 11, "bold"), pady=5).pack(fill="x", padx=15, pady=15)
+
+        # ================= RIGHT: LIVE PLAN GRID =================
+        tk.Label(f_right, text="📋 Live Production Board", font=("Segoe UI", 14, "bold"), bg="white", fg="#2C3E50").pack(anchor="w", pady=(0, 10))
         
-        self.tree_plan.pack(fill="both", expand=True, padx=20, pady=10)
+        cols = ("Press", "Daylight", "Size", "Brand", "Target Wt", "Target Qty")
+        self.tree_plan = ttk.Treeview(f_right, columns=cols, show="headings", height=20)
+        for c in cols: self.tree_plan.heading(c, text=c)
+        
+        self.tree_plan.column("Press", width=70, anchor="center")
+        self.tree_plan.column("Daylight", width=80, anchor="center")
+        self.tree_plan.column("Size", width=120, anchor="center")
+        self.tree_plan.column("Target Wt", width=80, anchor="center")
+        self.tree_plan.column("Target Qty", width=80, anchor="center")
+        self.tree_plan.pack(fill="both", expand=True)
+        
+        f_grid_btns = tk.Frame(f_right, bg="white")
+        f_grid_btns.pack(fill="x", pady=10)
+        tk.Button(f_grid_btns, text="🗑️ Clear Selected Press", command=self.delete_plan, bg="#E74C3C", fg="white", font=("Segoe UI", 9, "bold")).pack(side="left")
+        tk.Button(f_grid_btns, text="🔄 Refresh Board", command=self.refresh_plan_list, bg="#2980B9", fg="white", font=("Segoe UI", 9, "bold")).pack(side="right")
+
         self.refresh_plan_list()
+        self.load_master_dropdown()
+        self.toggle_plan_mode() # Initialize UI state
+
+    # --- PLAN LOGIC & DROPDOWNS ---
+    def toggle_plan_mode(self):
+        mode = self.plan_mode.get()
+        if mode == "MTO":
+            self.f_mts.pack_forget()
+            self.f_mto.pack(fill="x", pady=5, before=self.f_shared)
+        else:
+            self.f_mto.pack_forget()
+            self.f_mts.pack(fill="x", pady=5, before=self.f_shared)
+            self.load_catalog_sizes()
+
+    def load_master_dropdown(self):
+        query = "SELECT order_id, pi_number, tyre_size, brand, req_qty, produced_qty FROM master_orders WHERE status != 'CLOSED'"
+        res = DBManager.fetch_data(query)
+        self.master_order_map = {}
+        vals = []
+        if res:
+            for r in res:
+                oid, pi, size, brand, req, prod = r
+                pending = req - (prod if prod else 0)
+                display_text = f"[{oid}] {pi} | {size} {brand} (Pending: {pending})"
+                vals.append(display_text)
+                self.master_order_map[display_text] = oid
+        self.plan_mo_cb['values'] = vals
+
+    def autofill_plan_from_order(self, event):
+        selection = self.plan_mo_cb.get()
+        if not selection or selection not in self.master_order_map: return
+        
+        order_id = self.master_order_map[selection]
+        q = "SELECT tyre_size, core_size, brand, quality, req_qty FROM master_orders WHERE order_id = %s"
+        res = DBManager.fetch_data(q, (order_id,))
+        if res:
+            size, core, brand, qual, req = res[0]
+            self.hidden_plan_data = {'size': size, 'core': core, 'brand': brand, 'qual': qual}
+            self.plan_qty.delete(0, tk.END)
+            self.plan_qty.insert(0, str(req))
+            
+            # Fetch baseline weight from catalog
+            wq = "SELECT baseline_weight FROM product_catalog WHERE tyre_size=%s AND core_size=%s AND brand=%s LIMIT 1"
+            w_res = DBManager.fetch_data(wq, (size, core, brand))
+            self.current_baseline_weight = float(w_res[0][0]) if w_res else 0.0
+            
+            self.plan_wt.delete(0, tk.END)
+            self.plan_wt.insert(0, str(self.current_baseline_weight))
+
+    def load_catalog_sizes(self):
+        res = DBManager.fetch_data("SELECT DISTINCT tyre_size FROM product_catalog WHERE is_active=TRUE ORDER BY tyre_size")
+        self.cb_size['values'] = [r[0] for r in res] if res else []
+        self.cb_core.set(''); self.cb_brand.set(''); self.cb_qual.set(''); self.plan_wt.delete(0, tk.END)
+
+    def on_size_select(self, event):
+        size = self.cb_size.get()
+        res = DBManager.fetch_data("SELECT DISTINCT core_size FROM product_catalog WHERE tyre_size=%s AND is_active=TRUE", (size,))
+        self.cb_core['values'] = [r[0] for r in res] if res else []
+        self.cb_core.set(''); self.cb_brand.set(''); self.cb_qual.set('')
+
+    def on_core_select(self, event):
+        size = self.cb_size.get(); core = self.cb_core.get()
+        res = DBManager.fetch_data("SELECT DISTINCT brand FROM product_catalog WHERE tyre_size=%s AND core_size=%s AND is_active=TRUE", (size, core))
+        self.cb_brand['values'] = [r[0] for r in res] if res else []
+        self.cb_brand.set(''); self.cb_qual.set('')
+
+    def on_brand_select(self, event):
+        size = self.cb_size.get(); core = self.cb_core.get(); brand = self.cb_brand.get()
+        res = DBManager.fetch_data("SELECT DISTINCT quality FROM product_catalog WHERE tyre_size=%s AND core_size=%s AND brand=%s AND is_active=TRUE", (size, core, brand))
+        self.cb_qual['values'] = [r[0] for r in res] if res else []
+        self.cb_qual.set('')
+
+    def on_quality_select(self, event):
+        size = self.cb_size.get(); core = self.cb_core.get(); brand = self.cb_brand.get(); qual = self.cb_qual.get()
+        self.hidden_plan_data = {'size': size, 'core': core, 'brand': brand, 'qual': qual}
+        
+        res = DBManager.fetch_data("SELECT baseline_weight FROM product_catalog WHERE tyre_size=%s AND core_size=%s AND brand=%s AND quality=%s LIMIT 1", (size, core, brand, qual))
+        if res:
+            self.current_baseline_weight = float(res[0][0])
+            self.plan_wt.delete(0, tk.END)
+            self.plan_wt.insert(0, str(self.current_baseline_weight))
+
+    def add_manual_plan(self):
+        press = self.plan_press.get().strip().upper()
+        dl = self.plan_dl.get().strip().upper()
+        
+        try: 
+            qty = int(self.plan_qty.get().strip())
+            target_wt = float(self.plan_wt.get().strip())
+        except ValueError: 
+            return messagebox.showerror("Error", "Quantity and Target Weight must be numeric.")
+            
+        if not press or not dl or not self.hidden_plan_data:
+            return messagebox.showerror("Error", "Please complete all fields (Order/Catalog, Press, Daylight).")
+
+        # --- THE 15% GUARDRAIL CHECK ---
+        warning_note = ""
+        if self.current_baseline_weight > 0:
+            diff = target_wt - self.current_baseline_weight
+            pct_diff = (abs(diff) / self.current_baseline_weight) * 100
+            
+            if pct_diff > 15.0:
+                msg = f"⚠️ WEIGHT TOLERANCE ALERT\n\nEntered Weight: {target_wt} kg\nDatabase Baseline: {self.current_baseline_weight} kg\n\nThis is {pct_diff:.1f}% off standard! Are you absolutely sure you want to assign this?"
+                if not messagebox.askyesno("Confirm Deviation", msg): return
+            elif pct_diff > 0:
+                warning_note = f"\n(Note: Weight is {pct_diff:.1f}% off standard)"
+
+        # Assign to Press
+        DBManager.execute_query("DELETE FROM production_plan WHERE press_id=%s AND daylight=%s", (press, dl))
+
+        q = """INSERT INTO production_plan (press_id, daylight, tyre_size, core_size, brand, quality, tyre_weight, production_requirement) 
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"""
+        if DBManager.execute_query(q, (press, dl, self.hidden_plan_data['size'], self.hidden_plan_data['core'], self.hidden_plan_data['brand'], self.hidden_plan_data['qual'], target_wt, qty)):
+            self.refresh_plan_list()
+            self.plan_qty.delete(0, tk.END)
+            messagebox.showinfo("Success", f"{press} ({dl}) Assigned!{warning_note}")
+
+    def delete_plan(self):
+        sel = self.tree_plan.selection()
+        if not sel: return messagebox.showwarning("Warning", "Select a Press assignment to clear.")
+        item = self.tree_plan.item(sel[0])['values']
+        
+        if messagebox.askyesno("Confirm", f"Clear plan for {item[0]} ({item[1]})?"):
+            DBManager.execute_query("DELETE FROM production_plan WHERE press_id=%s AND daylight=%s", (item[0], item[1]))
+            self.refresh_plan_list()
+
+    def refresh_plan_list(self): 
+        self._refresh_tree(self.tree_plan, "SELECT press_id, daylight, tyre_size, brand, tyre_weight, production_requirement FROM production_plan ORDER BY press_id, daylight")
+        self.load_master_dropdown()
+
+
 
     def upload_plan(self):
         rows = self._read_csv_file()
@@ -181,7 +380,6 @@ class AdminDashboard:
         DBManager.execute_query("DELETE FROM production_plan")
         count = 0
         for r in rows:
-            # Added PRODUCTION_REQUIREMENT
             req = r.get('PRODUCTION_REQUIREMENT', 0)
             if not req: req = 0
             
@@ -199,10 +397,207 @@ class AdminDashboard:
         self._refresh_tree(self.tree_plan, "SELECT press_id, daylight, tyre_size, quality, production_requirement FROM production_plan ORDER BY press_id, daylight")
     
     def download_sample_plan(self): 
-        # Updated Sample Headers
         self._save_csv("Sample_Plan.csv", 
                        ["PRESS", "DAYLIGHT", "TYRE_SIZE", "CORE_SIZE", "BRAND", "PATTERN", "QUALITY", "MOULD_ID", "TYPE", "TYRE WEIGHT", "PRODUCTION_REQUIREMENT"], 
                        [["P-01", "1", "12.00-20", "10", "BRAND-X", "LUG", "A-GRADE", "M123", "STD", "45.5", "20"]])
+
+    # --- NEW: MASTER ORDERS ---
+    def setup_master_orders_tab(self):
+        tk.Label(self.tab_master, text="📦 Master Order Book", font=("Segoe UI", 12, "bold"), bg="white").pack(pady=15)
+        
+        f_top = tk.Frame(self.tab_master, bg="#F4F6F7", pady=10, padx=10, relief="ridge", bd=1)
+        f_top.pack(fill="x", padx=20, pady=5)
+        
+        # Form Elements
+        tk.Label(f_top, text="PI Number:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="w", padx=2)
+        self.mo_pi = tk.Entry(f_top, width=18); self.mo_pi.grid(row=1, column=0, padx=2)
+
+        tk.Label(f_top, text="Customer:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).grid(row=0, column=1, sticky="w", padx=2)
+        self.mo_cust = tk.Entry(f_top, width=18); self.mo_cust.grid(row=1, column=1, padx=2)
+
+        tk.Label(f_top, text="Size:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).grid(row=0, column=2, sticky="w", padx=2)
+        self.mo_size = tk.Entry(f_top, width=12); self.mo_size.grid(row=1, column=2, padx=2)
+
+        tk.Label(f_top, text="Core:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).grid(row=0, column=3, sticky="w", padx=2)
+        self.mo_core = tk.Entry(f_top, width=8); self.mo_core.grid(row=1, column=3, padx=2)
+
+        tk.Label(f_top, text="Brand:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).grid(row=0, column=4, sticky="w", padx=2)
+        self.mo_brand = tk.Entry(f_top, width=12); self.mo_brand.grid(row=1, column=4, padx=2)
+        
+        tk.Label(f_top, text="Quality:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).grid(row=0, column=5, sticky="w", padx=2)
+        self.mo_qual = tk.Entry(f_top, width=12); self.mo_qual.grid(row=1, column=5, padx=2)
+
+        tk.Label(f_top, text="Req Qty:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).grid(row=0, column=6, sticky="w", padx=2)
+        self.mo_qty = tk.Entry(f_top, width=8); self.mo_qty.grid(row=1, column=6, padx=2)
+
+        # Buttons Grid
+        tk.Button(f_top, text="➕ ADD MANUAL", command=self.add_master_order, bg="#27AE60", fg="white", font=("Segoe UI", 9, "bold")).grid(row=1, column=7, padx=10)
+        
+        # CSV Actions directly below form
+        f_csv = tk.Frame(self.tab_master, bg="white")
+        f_csv.pack(pady=5)
+        tk.Button(f_csv, text="⬇ Sample CSV", command=self.download_sample_master_csv).pack(side="left", padx=5)
+        tk.Button(f_csv, text="📂 Upload CSV", command=self.upload_master_csv, bg="#8E44AD", fg="white").pack(side="left", padx=5)
+        tk.Button(f_csv, text="🔄 Refresh", command=self.load_master_orders).pack(side="left", padx=5)
+
+        # Treeview
+        cols = ("ID", "PI Number", "Customer", "Size", "Brand", "Req Qty", "Produced", "Status")
+        self.tree_mo = ttk.Treeview(self.tab_master, columns=cols, show="headings", height=15)
+        for c in cols: self.tree_mo.heading(c, text=c)
+        
+        self.tree_mo.column("ID", width=40, anchor="center")
+        self.tree_mo.column("Req Qty", width=80, anchor="center")
+        self.tree_mo.column("Produced", width=80, anchor="center")
+        self.tree_mo.column("Status", width=100, anchor="center")
+        self.tree_mo.pack(fill="both", expand=True, padx=20, pady=10)
+        
+        self.load_master_orders()
+
+    # ==========================================
+    # --- 📚 TYRE MASTER (PRODUCT CATALOG) ---
+    # ==========================================
+    def setup_catalog_tab(self):
+        tk.Label(self.tab_catalog, text="📚 Master Tyre Catalog", font=("Segoe UI", 12, "bold"), bg="white").pack(pady=15)
+        
+        f_top = tk.Frame(self.tab_catalog, bg="#F4F6F7", pady=10, padx=10, relief="ridge", bd=1)
+        f_top.pack(fill="x", padx=20, pady=5)
+        
+        # Form Elements
+        tk.Label(f_top, text="Tyre Size:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="w", padx=2)
+        self.cat_size = tk.Entry(f_top, width=15); self.cat_size.grid(row=1, column=0, padx=2)
+
+        tk.Label(f_top, text="Core Size:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).grid(row=0, column=1, sticky="w", padx=2)
+        self.cat_core = tk.Entry(f_top, width=10); self.cat_core.grid(row=1, column=1, padx=2)
+
+        tk.Label(f_top, text="Brand:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).grid(row=0, column=2, sticky="w", padx=2)
+        self.cat_brand = tk.Entry(f_top, width=15); self.cat_brand.grid(row=1, column=2, padx=2)
+
+        tk.Label(f_top, text="Quality:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).grid(row=0, column=3, sticky="w", padx=2)
+        self.cat_qual = tk.Entry(f_top, width=15); self.cat_qual.grid(row=1, column=3, padx=2)
+
+        tk.Label(f_top, text="Target Wt (kg):", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).grid(row=0, column=4, sticky="w", padx=2)
+        self.cat_wt = tk.Entry(f_top, width=12); self.cat_wt.grid(row=1, column=4, padx=2)
+
+        # Buttons Grid
+        tk.Button(f_top, text="➕ ADD TYRE", command=self.add_catalog_item, bg="#27AE60", fg="white", font=("Segoe UI", 9, "bold")).grid(row=1, column=5, padx=15)
+        
+        # CSV Actions directly below form
+        f_csv = tk.Frame(self.tab_catalog, bg="white")
+        f_csv.pack(pady=5)
+        tk.Button(f_csv, text="⬇ Sample CSV", command=self.download_sample_catalog_csv).pack(side="left", padx=5)
+        tk.Button(f_csv, text="📂 Upload CSV", command=self.upload_catalog_csv, bg="#8E44AD", fg="white").pack(side="left", padx=5)
+        tk.Button(f_csv, text="🗑️ Delete Selected", command=self.delete_catalog_item, bg="#E74C3C", fg="white").pack(side="left", padx=5)
+        tk.Button(f_csv, text="🔄 Refresh", command=self.load_catalog).pack(side="left", padx=5)
+
+        # Treeview
+        cols = ("SKU ID", "Tyre Size", "Core Size", "Brand", "Quality", "Baseline Wt", "Status")
+        self.tree_cat = ttk.Treeview(self.tab_catalog, columns=cols, show="headings", height=15)
+        for c in cols: self.tree_cat.heading(c, text=c)
+        
+        self.tree_cat.column("SKU ID", width=60, anchor="center")
+        self.tree_cat.column("Core Size", width=80, anchor="center")
+        self.tree_cat.column("Baseline Wt", width=100, anchor="center")
+        self.tree_cat.pack(fill="both", expand=True, padx=20, pady=10)
+        
+        self.load_catalog()
+
+    def load_catalog(self):
+        for i in self.tree_cat.get_children(): self.tree_cat.delete(i)
+        query = "SELECT sku_id, tyre_size, core_size, brand, quality, baseline_weight, CASE WHEN is_active THEN 'ACTIVE' ELSE 'INACTIVE' END FROM product_catalog ORDER BY tyre_size, core_size"
+        res = DBManager.fetch_data(query)
+        if res:
+            for r in res: self.tree_cat.insert("", "end", values=r)
+
+    def add_catalog_item(self):
+        size = self.cat_size.get().strip().upper()
+        core = self.cat_core.get().strip().upper()
+        brand = self.cat_brand.get().strip().upper()
+        qual = self.cat_qual.get().strip().upper()
+        
+        try: wt = float(self.cat_wt.get().strip())
+        except ValueError: return messagebox.showerror("Error", "Baseline Weight must be a number.")
+            
+        if not all([size, core, brand, qual]):
+            return messagebox.showerror("Error", "Please fill all text fields.")
+            
+        q = "INSERT INTO product_catalog (tyre_size, core_size, brand, quality, baseline_weight) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (tyre_size, core_size, brand, quality) DO UPDATE SET baseline_weight=EXCLUDED.baseline_weight"
+        if DBManager.execute_query(q, (size, core, brand, qual, wt)):
+            self.load_catalog()
+            for ent in [self.cat_size, self.cat_core, self.cat_brand, self.cat_qual, self.cat_wt]:
+                ent.delete(0, tk.END)
+            messagebox.showinfo("Success", "Tyre added to Master Catalog.")
+
+    def delete_catalog_item(self):
+        sel = self.tree_cat.selection()
+        if not sel: return messagebox.showwarning("Warning", "Select a Tyre to delete.")
+        sku = self.tree_cat.item(sel[0])['values'][0]
+        
+        if messagebox.askyesno("Confirm", f"Delete SKU {sku} from Catalog?"):
+            DBManager.execute_query("DELETE FROM product_catalog WHERE sku_id=%s", (sku,))
+            self.load_catalog()
+
+    def upload_catalog_csv(self):
+        rows = self._read_csv_file()
+        if not rows: return
+        count = 0
+        for r in rows:
+            try: wt = float(r.get('BASELINE_WT', 0))
+            except: wt = 0.0
+            
+            q = "INSERT INTO product_catalog (tyre_size, core_size, brand, quality, baseline_weight) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (tyre_size, core_size, brand, quality) DO UPDATE SET baseline_weight=EXCLUDED.baseline_weight"
+            if DBManager.execute_query(q, (r.get('TYRE_SIZE'), r.get('CORE_SIZE'), r.get('BRAND'), r.get('QUALITY'), wt)):
+                count += 1
+        messagebox.showinfo("Success", f"Uploaded/Updated {count} Tyres in Master Catalog")
+        self.load_catalog()
+
+    def download_sample_catalog_csv(self):
+        self._save_csv("Sample_Tyre_Master.csv", 
+                       ["TYRE_SIZE", "CORE_SIZE", "BRAND", "QUALITY", "BASELINE_WT"], 
+                       [["16X6-8", "4.33", "BOSON", "PREMIUM", "45.50"], ["5.00-8", "3.00", "BOSON", "STANDARD", "22.10"]])    
+
+    def load_master_orders(self):
+        for i in self.tree_mo.get_children(): self.tree_mo.delete(i)
+        query = "SELECT order_id, pi_number, customer_name, tyre_size, brand, req_qty, produced_qty, status FROM master_orders ORDER BY order_id DESC"
+        res = DBManager.fetch_data(query)
+        if res:
+            for r in res: self.tree_mo.insert("", "end", values=r)
+
+    def add_master_order(self):
+        pi = self.mo_pi.get().strip(); cust = self.mo_cust.get().strip()
+        size = self.mo_size.get().strip(); core = self.mo_core.get().strip()
+        brand = self.mo_brand.get().strip(); qual = self.mo_qual.get().strip()
+        
+        try: qty = int(self.mo_qty.get().strip())
+        except ValueError: return messagebox.showerror("Error", "Required Quantity must be a number.")
+            
+        if not all([pi, cust, size, core, brand, qty]):
+            return messagebox.showerror("Error", "Please fill all required fields.")
+            
+        q = "INSERT INTO master_orders (pi_number, customer_name, tyre_size, core_size, brand, quality, req_qty) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+        if DBManager.execute_query(q, (pi, cust, size, core, brand, qual, qty)):
+            self.load_master_orders()
+            # Clear fields after success
+            for ent in [self.mo_pi, self.mo_cust, self.mo_size, self.mo_core, self.mo_brand, self.mo_qual, self.mo_qty]:
+                ent.delete(0, tk.END)
+            messagebox.showinfo("Success", "Order added to Master Book.")
+
+    def upload_master_csv(self):
+        rows = self._read_csv_file()
+        if not rows: return
+        count = 0
+        for r in rows:
+            req = r.get('REQ_QTY', 0)
+            if not req: req = 0
+            q = "INSERT INTO master_orders (pi_number, customer_name, tyre_size, core_size, brand, quality, req_qty) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+            if DBManager.execute_query(q, (r.get('PI_NUMBER'), r.get('CUSTOMER'), r.get('SIZE'), r.get('CORE'), r.get('BRAND'), r.get('QUALITY'), req)):
+                count += 1
+        messagebox.showinfo("Success", f"Uploaded {count} Master Orders")
+        self.load_master_orders()
+
+    def download_sample_master_csv(self):
+        self._save_csv("Sample_Master_Orders.csv", 
+                       ["PI_NUMBER", "CUSTOMER", "SIZE", "CORE", "BRAND", "QUALITY", "REQ_QTY"], 
+                       [["VTPL/EX/PI/15A", "BOSON RUSSIA", "16X6-8", "4.33", "BOSON", "PREMIUM", "50"]])
 
     # --- 3. SPECS ---
     def setup_spec_tab(self):
@@ -218,7 +613,6 @@ class AdminDashboard:
         if not rows: return
         count = 0
         for r in rows:
-            # Helper to get float
             def get_f(key):
                 v = r.get(key, '').strip()
                 try: return float(v) if v else 0.0

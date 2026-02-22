@@ -394,15 +394,52 @@ class PC1SmartApp:
 
     # ================= FETCH PLAN DETAILS (UPDATED) =================
     def fetch_plan_details(self, e):
-        # Added production_requirement to query
-        res = DBManager.fetch_data("SELECT tyre_size, brand, pattern, quality, mould_id_marks, type, tyre_weight, core_size, production_requirement FROM production_plan WHERE press_id=%s AND daylight=%s", (self.var_press.get(), self.var_daylight.get()))
+        press = self.var_press.get()
+        dl = self.var_daylight.get()
+        
+        # 1. ADDED order_id to the end of the query (it is now index 9)
+        q = """SELECT tyre_size, brand, pattern, quality, mould_id_marks, type, 
+                      tyre_weight, core_size, production_requirement, order_id 
+               FROM production_plan 
+               WHERE press_id=%s AND daylight=%s"""
+               
+        res = DBManager.fetch_data(q, (press, dl))
+        
         if res:
-            r = res[0]; self.var_size.set(r[0]); self.var_brand.set(r[1]); self.var_pattern.set(r[2]); self.var_quality.set(r[3]); self.var_mould.set(r[4]); self.var_type.set(r[5] if r[5] else "—"); self.target_weight = float(r[6]); self.var_plan_weight.set(f"{r[6]} kg"); self.load_specs(r[3], r[0], r[5], r[4])
-            self.lbl_plan_status.config(text="✅ Plan Loaded", fg=C_SUCCESS)
+            r = res[0]
             
-            # --- BALANCE LOGIC ---
+            # 2. THE SAFETY FIX: Safely handle text fields (prevents crashes if blank)
+            self.var_size.set(r[0] if r[0] else "—")
+            self.var_brand.set(r[1] if r[1] else "—")
+            self.var_pattern.set(r[2] if r[2] else "—")
+            self.var_quality.set(r[3] if r[3] else "—")
+            self.var_mould.set(r[4] if r[4] else "—")
+            self.var_type.set(r[5] if r[5] else "—")
+            
+            # 3. Safely handle the numeric weight field (Index 6)
+            weight_val = r[6] if r[6] is not None else 0.0
+            self.target_weight = float(weight_val)
+            self.var_plan_weight.set(f"{self.target_weight} kg")
+            
+            # 4. Load the specs using the safely extracted variables
+            self.load_specs(r[3], r[0], r[5], r[4])
+            
+            # Status update
+            self.lbl_plan_status.config(text="✅ Plan Loaded", fg="#27AE60") # Using direct hex just in case C_SUCCESS isn't defined globally
+            
+            # 5. BALANCE LOGIC (Index 8)
             target_qty = int(r[8]) if r[8] else 0
             self.update_balance_display(target_qty)
+            
+            # 6. CATCH THE BATON: Store the Order ID for tracing (Index 9)
+            self.current_order_id = r[9] if (len(r) > 9 and r[9] is not None) else None
+            
+        else:
+            # If no plan is assigned to this press, clear the ID
+            self.current_order_id = None
+            self.lbl_plan_status.config(text="❌ No Plan", fg="#E74C3C")
+            # If you have a self.reset_ui() function, uncomment the line below:
+            # self.reset_ui()
 
     def update_balance_display(self, target_qty):
         if target_qty <= 0:
@@ -498,12 +535,15 @@ class PC1SmartApp:
 
         # 3. Save to DB
         bid = self.get_next_bid()
-        q = """INSERT INTO pc1_building (b_id, press_id, daylight, tyre_size, brand, pattern, quality, mould_id_marks, batch_core, batch_mid, batch_gum, is_pob, batch_tread, tread_type, operator_id, shift, status, green_tyre_weight, ms_rim_weight, building_remarks, birth_time) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
         
-        d = (bid, self.var_press.get(), self.var_daylight.get(), self.var_size.get(), self.var_brand.get(), self.var_pattern.get(), self.var_quality.get(), self.var_mould.get(), self.get_list_values("list_core"), self.get_list_values("list_mid"), self.sel_gum.get(), self.current_is_pob, self.get_list_values("list_tread"), self.sel_tread_type.get(), self.var_operator.get(), self.var_shift.get(), mode, final_wt, ms_wt, self.var_remarks.get().strip(), datetime.datetime.now() if mode=="COMPLETED" else None)
+        # ADDED: order_id column and an extra %s at the end
+        q = """INSERT INTO pc1_building (b_id, press_id, daylight, tyre_size, brand, pattern, quality, mould_id_marks, batch_core, batch_mid, batch_gum, is_pob, batch_tread, tread_type, operator_id, shift, status, green_tyre_weight, ms_rim_weight, building_remarks, birth_time, order_id) 
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+        
+        # ADDED: self.current_order_id at the very end of the tuple
+        d = (bid, self.var_press.get(), self.var_daylight.get(), self.var_size.get(), self.var_brand.get(), self.var_pattern.get(), self.var_quality.get(), self.var_mould.get(), self.get_list_values("list_core"), self.get_list_values("list_mid"), self.sel_gum.get(), self.current_is_pob, self.get_list_values("list_tread"), self.sel_tread_type.get(), self.var_operator.get(), self.var_shift.get(), mode, final_wt, ms_wt, self.var_remarks.get().strip(), datetime.datetime.now() if mode=="COMPLETED" else None, self.current_order_id)
         
         if DBManager.execute_query(q, d):
-
         
             self.print_label(bid, self.var_size.get(), self.var_press.get(), self.var_daylight.get()); self.refresh_today_list(); messagebox.showinfo("Saved", bid)
             

@@ -53,6 +53,7 @@ class AdminDashboard:
         self.setup_plan_tab()
         self.setup_master_orders_tab() # SETUP CALL
         self.setup_catalog_tab() # SETUP CALL
+        self.setup_spec_tab()
         self.setup_bead_tab()
         self.setup_mould_tab()
         self.setup_defects_tab()
@@ -274,13 +275,26 @@ class AdminDashboard:
         if not selection or selection not in self.master_order_map: return
         
         order_id = self.master_order_map[selection]
-        q = "SELECT tyre_size, core_size, brand, quality, req_qty FROM master_orders WHERE order_id = %s"
+        
+        # 1. UPDATED SQL: Now we also fetch the produced_qty
+        q = "SELECT tyre_size, core_size, brand, quality, req_qty, produced_qty FROM master_orders WHERE order_id = %s"
         res = DBManager.fetch_data(q, (order_id,))
+        
         if res:
-            size, core, brand, qual, req = res[0]
+            size, core, brand, qual, req, prod = res[0]
+            
+            # 2. THE MATH: Calculate how many are actually left to build
+            prod_val = prod if prod else 0 
+            pending = req - prod_val
+            
+            # Prevent negative numbers just in case of overproduction
+            if pending < 0: pending = 0 
+            
             self.hidden_plan_data = {'size': size, 'core': core, 'brand': brand, 'qual': qual}
+            
+            # 3. AUTO-FILL: Insert the PENDING amount, not the original total!
             self.plan_qty.delete(0, tk.END)
-            self.plan_qty.insert(0, str(req))
+            self.plan_qty.insert(0, str(pending))
             
             # Fetch baseline weight from catalog
             wq = "SELECT baseline_weight FROM product_catalog WHERE tyre_size=%s AND core_size=%s AND brand=%s LIMIT 1"
@@ -289,6 +303,12 @@ class AdminDashboard:
             
             self.plan_wt.delete(0, tk.END)
             self.plan_wt.insert(0, str(self.current_baseline_weight))
+            
+            # Optional: Pop up a quick notification if the order is already partially done
+            if prod_val > 0 and pending > 0:
+                messagebox.showinfo("Progress Update", f"Order in progress!\n\nTotal Required: {req}\nAlready Produced: {prod_val}\n\nTarget quantity auto-filled to remaining: {pending}")
+            elif pending == 0:
+                messagebox.showwarning("Order Complete", "Warning: This Master Order has already hit its required production target!")
 
     def load_catalog_sizes(self):
         res = DBManager.fetch_data("SELECT DISTINCT tyre_size FROM product_catalog WHERE is_active=TRUE ORDER BY tyre_size")
@@ -336,6 +356,13 @@ class AdminDashboard:
         if not press or not dl or not self.hidden_plan_data:
             return messagebox.showerror("Error", "Please complete all fields (Order/Catalog, Press, Daylight).")
 
+        # --- GRAB THE ORDER ID (IF MTO) ---
+        order_id = None
+        if self.plan_mode.get() == "MTO":
+            selection = self.plan_mo_cb.get()
+            if selection in self.master_order_map:
+                order_id = self.master_order_map[selection]
+
         # --- THE 15% GUARDRAIL CHECK ---
         warning_note = ""
         if self.current_baseline_weight > 0:
@@ -351,9 +378,11 @@ class AdminDashboard:
         # Assign to Press
         DBManager.execute_query("DELETE FROM production_plan WHERE press_id=%s AND daylight=%s", (press, dl))
 
-        q = """INSERT INTO production_plan (press_id, daylight, tyre_size, core_size, brand, quality, tyre_weight, production_requirement) 
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"""
-        if DBManager.execute_query(q, (press, dl, self.hidden_plan_data['size'], self.hidden_plan_data['core'], self.hidden_plan_data['brand'], self.hidden_plan_data['qual'], target_wt, qty)):
+        # --- UPDATED SQL: Now includes order_id ---
+        q = """INSERT INTO production_plan (press_id, daylight, tyre_size, core_size, brand, quality, tyre_weight, production_requirement, order_id) 
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+               
+        if DBManager.execute_query(q, (press, dl, self.hidden_plan_data['size'], self.hidden_plan_data['core'], self.hidden_plan_data['brand'], self.hidden_plan_data['qual'], target_wt, qty, order_id)):
             self.refresh_plan_list()
             self.plan_qty.delete(0, tk.END)
             messagebox.showinfo("Success", f"{press} ({dl}) Assigned!{warning_note}")

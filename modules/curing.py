@@ -671,6 +671,23 @@ class CuringApp:
         if "Shift B" in s_name: return dt.replace(hour=15), dt.replace(hour=23)
         if "Shift C" in s_name: return dt.replace(hour=23), (dt+datetime.timedelta(days=1)).replace(hour=7)
         return dt.replace(hour=7), (dt+datetime.timedelta(days=1)).replace(hour=7)
+        
+    def reset_gt_labels(self):
+        # Safely tries to clear the screen if an invalid Green Tyre is scanned
+        try:
+            # Update the status label if it exists
+            if hasattr(self, 'lbl_gt_info'):
+                self.lbl_gt_info.config(text="❌ TYRE NOT FOUND OR ALREADY CURED", fg="#E74C3C")
+            elif hasattr(self, 'lbl_gt_status'):
+                self.lbl_gt_status.config(text="❌ TYRE NOT FOUND", fg="#E74C3C")
+                
+            # Clear standard variables if they exist in your UI
+            if hasattr(self, 'var_gt_size'): self.var_gt_size.set("—")
+            if hasattr(self, 'var_gt_brand'): self.var_gt_brand.set("—")
+            if hasattr(self, 'var_gt_quality'): self.var_gt_quality.set("—")
+            if hasattr(self, 'var_gt_weight'): self.var_gt_weight.set("—")
+        except Exception as e:
+            print(f"Reset labels ignored: {e}")
 
 if __name__ == "__main__":
     root = tk.Tk(); app = CuringApp(root); root.mainloop()
