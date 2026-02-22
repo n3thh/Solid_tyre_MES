@@ -1,0 +1,10 @@
+machine_id,type,capacity,location
+P-01,Press,Single,Zone_A
+P-02,Press,Single,Zone_A
+P-03,Press,Double,Zone_B
+P-04,Press,Double,Zone_B
+P-05,Press,Double,Zone_B
+P-06,Press,Double,Zone_B
+P-07,Press,Single,Zone_A
+P-08,Press,Double,Zone_B
+OVEN-01,Oven,Batch,Zone_C

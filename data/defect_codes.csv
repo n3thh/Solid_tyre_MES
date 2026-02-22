@@ -1,0 +1,5 @@
+code,description,category,severity
+D-01,Air_Pocket,Curing,Critical
+D-02,Undercure,Curing,Critical
+D-03,Foreign_Material,Building,Minor
+D-04,Mold_Dirty,Curing,Minor
