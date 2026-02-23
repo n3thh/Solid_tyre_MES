@@ -8,7 +8,7 @@ import math
 from db_manager import DBManager
 
 # ================= CONFIGURATION =================
-LINUX_PRINTER_PATH = "/dev/usb/lp4" 
+LINUX_PRINTER_PATH = "/dev/usb/lp0" 
 C_BG = "#F4F6F7"       
 C_CARD = "#FFFFFF"     
 C_PRIMARY = "#2C3E50"  
@@ -92,7 +92,7 @@ class PC1SmartApp:
             self.load_materials()
             self.refresh_today_list()
         except Exception as e:
-            messagebox.showerror("Error", f"DB Connection Failed:\n{e}")
+            messagebox.showerror("Error", f"DB Connection Failed:\n{e}",parent=self.root)
 
     def on_upd_tread_type_change(self, event):
         t_type = self.upd_tread_type.get()
@@ -192,7 +192,7 @@ class PC1SmartApp:
         if sh != "ALL": q += " AND shift=%s"; params.append(sh)
         builds = DBManager.fetch_data(q, tuple(params))
         
-        if not builds: return messagebox.showinfo("Info", "No data found for this date/shift.")
+        if not builds: return messagebox.showinfo("Info", "No data found for this date/shift.",parent=self.root)
 
         missing_grades = set(); missing_beads = set(); zero_weights = 0
         tot_core=0.0; tot_mid=0.0; tot_ct=0.0; tot_gum=0.0; tot_tread=0.0; tot_wt=0.0
@@ -253,7 +253,7 @@ class PC1SmartApp:
         if zero_weights > 0: error_msg += f"⚠️ {zero_weights} Tyres have 0.0 KG Weight.\n"
         if missing_grades: error_msg += f"⚠️ Missing Specs for Grades: {', '.join(str(x) for x in missing_grades)}\n"
         if missing_beads: error_msg += f"⚠️ Missing Bead Master for Sizes: {', '.join(str(x) for x in missing_beads)}\n"
-        if error_msg: messagebox.showwarning("Diagnostics", error_msg)
+        if error_msg: messagebox.showwarning("Diagnostics", error_msg,parent=self.root)
 
         num_tyres = len(builds) if len(builds) > 0 else 1
         avg_core_pct = sum_core_pct / num_tyres
@@ -502,7 +502,7 @@ class PC1SmartApp:
     def submit_build(self, mode):
         # 1. Setup Checks
         if self.var_size.get() == "—" or not self.var_operator.get(): 
-            return messagebox.showerror("Error", "Missing Setup")
+            return messagebox.showerror("Error", "Missing Setup",parent=self.root)
         
         # 2. Get Weights & Validate
         wt_val = self.var_weight.get().strip()
@@ -512,7 +512,7 @@ class PC1SmartApp:
         ms_wt = 0.0
         if self.current_is_pob and self.var_ms_rim_wt.get().strip():
             try: ms_wt = float(self.var_ms_rim_wt.get().strip())
-            except ValueError: return messagebox.showerror("Error", "Invalid MS Rim Weight Format")
+            except ValueError: return messagebox.showerror("Error", "Invalid MS Rim Weight Format",parent=self.root)
 
         if wt_val:
             try:
@@ -527,11 +527,11 @@ class PC1SmartApp:
                     
                     if final_wt < min_w or final_wt > max_w:
                         msg = f"⚠️ WEIGHT WARNING!\n\nTarget Rubber: {self.target_weight} kg\nMS Rim: {ms_wt} kg\nTotal Expected: {target_combined} kg\n\nEntered: {final_wt} kg\n\nOutside 15% Tolerance. Proceed?"
-                        if not messagebox.askyesno("Weight Check", msg):
+                        if not messagebox.askyesno("Weight Check", msg,parent=self.root):
                             return
                 # --- VALIDATION END ---
             except ValueError:
-                return messagebox.showerror("Error", "Invalid Weight Format")
+                return messagebox.showerror("Error", "Invalid Weight Format",parent=self.root)
 
         # 3. Save to DB
         bid = self.get_next_bid()
@@ -545,7 +545,7 @@ class PC1SmartApp:
         
         if DBManager.execute_query(q, d):
         
-            self.print_label(bid, self.var_size.get(), self.var_press.get(), self.var_daylight.get()); self.refresh_today_list(); messagebox.showinfo("Saved", bid)
+            self.print_label(bid, self.var_size.get(), self.var_press.get(), self.var_daylight.get()); self.refresh_today_list(); messagebox.showinfo("Saved", bid,parent=self.root)
             
             # --- Update Balance ---
             # Ideally we re-fetch, but simple reset for now forces operator to re-select or we keep plan loaded.
@@ -566,13 +566,13 @@ class PC1SmartApp:
                     max_w = self.partial_target_weight * 1.15
                     if final_wt < min_w or final_wt > max_w:
                          msg = f"⚠️ WEIGHT WARNING!\n\nTarget: {self.partial_target_weight} kg\nEntered: {final_wt} kg\n\nOutside 15% Tolerance.\nProceed?"
-                         if not messagebox.askyesno("Weight Check", msg):
+                         if not messagebox.askyesno("Weight Check", msg,parent=self.root):
                              return
             except ValueError:
-                return messagebox.showerror("Error", "Invalid Weight Format")
+                return messagebox.showerror("Error", "Invalid Weight Format",parent=self.root)
 
         if DBManager.execute_query("UPDATE pc1_building SET batch_tread=%s, tread_type=%s, green_tyre_weight=%s, status='COMPLETED', birth_time=NOW() WHERE b_id=%s", (self.get_list_values("list_upd_tread"), self.upd_tread_type.get(), final_wt, self.upd_bid.get().strip())):
-            messagebox.showinfo("Success", "Updated"); self.refresh_today_list()
+            messagebox.showinfo("Success", "Updated",parent=self.root); self.refresh_today_list()
             # Clear fields
             self.upd_bid.set(""); self.upd_weight.set(""); self.upd_tread_type.set("")
             if hasattr(self, 'list_upd_tread'): self.list_upd_tread.delete(0, tk.END)

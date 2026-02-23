@@ -45,42 +45,55 @@ class DespatchApp:
         content = tk.Frame(self.root, bg=C_BG)
         content.pack(fill="both", expand=True, padx=20, pady=20)
 
-        # ================= LEFT: ORDER BUILDER =================
+        # ================= LEFT: ORDER BUILDER (HYBRID) =================
         self.f_left = tk.Frame(content, bg=C_BG, width=500)
         self.f_left.pack(side="left", fill="y", expand=False, padx=(0, 10))
         
-        card_order = self.create_card(self.f_left, "1. BUILD CUSTOMER ORDER")
+        card_order = self.create_card(self.f_left, "1. BUILD OR LOAD ORDER")
         
-        tk.Label(card_order, text="Customer / Order Ref:", bg=C_CARD, font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        # 1. CUSTOMER NAME (Required for Manifest)
+        tk.Label(card_order, text="Customer Name:", bg=C_CARD, font=("Segoe UI", 10, "bold")).pack(anchor="w")
         self.ent_cust = tk.Entry(card_order, textvariable=self.var_customer, font=("Segoe UI", 12), bg="#EAF2F8")
-        self.ent_cust.pack(fill="x", pady=(0, 15))
+        self.ent_cust.pack(fill="x", pady=(0, 10))
 
-        # Inputs
-        f_inputs = tk.Frame(card_order, bg=C_CARD)
-        f_inputs.pack(fill="x")
+        # 2. OPTION A: LOAD FROM PI
+        f_pi = tk.LabelFrame(card_order, text=" OPTION A: Load Master PI ", bg=C_CARD, font=("Segoe UI", 9, "bold"), padx=10, pady=10)
+        f_pi.pack(fill="x", pady=5)
+        self.combo_pi = ttk.Combobox(f_pi, font=("Segoe UI", 11), state="readonly")
+        self.combo_pi.pack(fill="x", pady=(0, 5))
+        self.btn_load_pi = tk.Button(f_pi, text="⬇️ LOAD PI DETAILS", command=self.load_selected_order, bg="#34495E", fg="white", font=("Segoe UI", 9, "bold"))
+        self.btn_load_pi.pack(fill="x")
+
+        # 3. OPTION B: ADD MANUAL ITEM (Cascading)
+        f_man = tk.LabelFrame(card_order, text=" OPTION B: Add Local/Manual Item ", bg=C_CARD, font=("Segoe UI", 9, "bold"), padx=10, pady=10)
+        f_man.pack(fill="x", pady=5)
         
-        self.create_input_row(f_inputs, "Tyre Size:", self.var_size, 0)
-        self.create_input_row(f_inputs, "Brand:", self.var_brand, 1)
-        self.create_input_row(f_inputs, "Grade/Quality:", self.var_quality, 2)
+        # We need a var for Core now
+        if not hasattr(self, 'var_core'): self.var_core = tk.StringVar()
+
+        self.create_input_row(f_man, "Tyre Size:", self.var_size, 0)
+        self.create_input_row(f_man, "Core Size:", self.var_core, 1)
+        self.create_input_row(f_man, "Brand:", self.var_brand, 2)
+        self.create_input_row(f_man, "Grade/Quality:", self.var_quality, 3)
         
-        tk.Label(f_inputs, text="Quantity:", bg=C_CARD, font=("Segoe UI", 9, "bold")).grid(row=3, column=0, sticky="w", pady=5)
-        tk.Entry(f_inputs, textvariable=self.var_qty, font=("Segoe UI", 12), width=10).grid(row=3, column=1, sticky="w", pady=5)
+        tk.Label(f_man, text="Quantity:", bg=C_CARD, font=("Segoe UI", 9, "bold")).grid(row=4, column=0, sticky="w", pady=5)
+        tk.Entry(f_man, textvariable=self.var_qty, font=("Segoe UI", 11), width=10).grid(row=4, column=1, sticky="w", pady=5)
 
-        self.btn_add = tk.Button(card_order, text="➕ ADD TO ORDER", command=self.add_to_order, bg="#34495E", fg="white", font=("Segoe UI", 10, "bold"))
-        self.btn_add.pack(fill="x", pady=15)
+        self.btn_add = tk.Button(f_man, text="➕ ADD TO LIST", command=self.add_manual_item, bg="#27AE60", fg="white", font=("Segoe UI", 9, "bold"))
+        self.btn_add.grid(row=4, column=1, sticky="e", pady=5)
 
-        # Order Grid
+        # 4. ORDER GRID
         cols_o = ("Size", "Brand", "Grade", "Req", "Scan")
-        self.tree_order = ttk.Treeview(card_order, columns=cols_o, show="headings", height=8)
+        self.tree_order = ttk.Treeview(card_order, columns=cols_o, show="headings", height=6)
         self.tree_order.heading("Size", text="Size"); self.tree_order.column("Size", width=120)
         self.tree_order.heading("Brand", text="Brand"); self.tree_order.column("Brand", width=100)
         self.tree_order.heading("Grade", text="Grade"); self.tree_order.column("Grade", width=90)
         self.tree_order.heading("Req", text="Req"); self.tree_order.column("Req", width=50, anchor="center")
         self.tree_order.heading("Scan", text="Scan"); self.tree_order.column("Scan", width=50, anchor="center")
-        self.tree_order.pack(fill="both", expand=True)
+        self.tree_order.pack(fill="both", expand=True, pady=10)
 
-        self.btn_lock = tk.Button(card_order, text="🔒 LOCK ORDER & START SCANNING", command=self.start_scanning, bg=C_WARN, fg="white", font=("Segoe UI", 12, "bold"), pady=10)
-        self.btn_lock.pack(fill="x", pady=15)
+        self.btn_lock = tk.Button(card_order, text="🔒 LOCK ORDER & START SCANNING", command=self.start_scanning, bg=C_WARN, fg="white", font=("Segoe UI", 12, "bold"), pady=5)
+        self.btn_lock.pack(fill="x")
 
         # ================= RIGHT: SCANNER QUEUE =================
         self.f_right = tk.Frame(content, bg=C_BG)
@@ -103,65 +116,118 @@ class DespatchApp:
         self.tree_scan.column("Time", width=100); self.tree_scan.column("Serial No", width=150)
         self.tree_scan.pack(fill="both", expand=True)
         
-        # Reset Button
         # Action Buttons Frame
         f_actions = tk.Frame(card_scan, bg=C_CARD)
         f_actions.pack(fill="x", pady=10)
         
-        # NEW: Finish Button
-        tk.Button(f_actions, text="✅ FINISH & CLEAR", command=self.finish_despatch, bg="#2980B9", fg="white", font=("Segoe UI", 10, "bold")).pack(side="left", padx=5)
-        
-        # Existing Buttons
-        tk.Button(f_actions, text="🔄 CANCEL ORDER", command=self.reset_system, bg=C_ERR, fg="white", font=("Segoe UI", 10)).pack(side="left", padx=5)
+        tk.Button(f_actions, text="✅ FINISH & CLOSE ORDER", command=self.finish_despatch, bg="#2980B9", fg="white", font=("Segoe UI", 10, "bold")).pack(side="left", padx=5)
+        tk.Button(f_actions, text="🔄 CANCEL", command=self.reset_system, bg=C_ERR, fg="white", font=("Segoe UI", 10)).pack(side="left", padx=5)
         tk.Button(f_actions, text="🌐 EXPORT HTML", command=self.export_html, bg="#8E44AD", fg="white", font=("Segoe UI", 10, "bold")).pack(side="right", padx=5)
         tk.Button(f_actions, text="📄 EXPORT CSV", command=self.export_csv, bg="#27AE60", fg="white", font=("Segoe UI", 10, "bold")).pack(side="right", padx=5)
 
-    # --- LOGIC ---
-    def load_dropdowns(self):
-        try:
-            sizes = DBManager.fetch_data("SELECT DISTINCT tyre_size FROM production_plan")
-            brands = DBManager.fetch_data("SELECT DISTINCT brand FROM production_plan")
-            if sizes: self.combo_size['values'] = [r[0] for r in sizes]
-            if brands: self.combo_brand['values'] = [r[0] for r in brands]
-            self.combo_quality['values'] = ["A-GRADE", "B-GRADE"]
-        except: pass
+# --- CASCADING DROPDOWNS (From Product Catalog) ---
+    def load_catalog_sizes(self):
+        res = DBManager.fetch_data("SELECT DISTINCT tyre_size FROM product_catalog WHERE is_active=TRUE ORDER BY tyre_size")
+        self.combo_size['values'] = [r[0] for r in res] if res else []
+        self.var_core.set(''); self.var_brand.set(''); self.var_quality.set('')
 
-    def add_to_order(self):
+    def on_size_select(self, event):
+        size = self.var_size.get()
+        res = DBManager.fetch_data("SELECT DISTINCT core_size FROM product_catalog WHERE tyre_size=%s AND is_active=TRUE", (size,))
+        self.combo_core['values'] = [r[0] for r in res] if res else []
+        self.var_core.set(''); self.var_brand.set(''); self.var_quality.set('')
+
+    def on_core_select(self, event):
+        size = self.var_size.get(); core = self.var_core.get()
+        res = DBManager.fetch_data("SELECT DISTINCT brand FROM product_catalog WHERE tyre_size=%s AND core_size=%s AND is_active=TRUE", (size, core))
+        self.combo_brand['values'] = [r[0] for r in res] if res else []
+        self.var_brand.set(''); self.var_quality.set('')
+
+    def on_brand_select(self, event):
+        size = self.var_size.get(); core = self.var_core.get(); brand = self.var_brand.get()
+        res = DBManager.fetch_data("SELECT DISTINCT quality FROM product_catalog WHERE tyre_size=%s AND core_size=%s AND brand=%s AND is_active=TRUE", (size, core, brand))
+        self.combo_quality['values'] = [r[0] for r in res] if res else []
+        self.var_quality.set('')
+        
+    def add_manual_item(self):
         size = self.var_size.get().strip()
+        core = self.var_core.get().strip()
         brand = self.var_brand.get().strip()
         quality = self.var_quality.get().strip()
         try: qty = int(self.var_qty.get())
-        except: return messagebox.showerror("Error", "Quantity must be a number.")
+        except: return messagebox.showerror("Error", "Quantity must be a valid number.")
 
         if not size or not brand or not quality or qty <= 0:
-            return messagebox.showerror("Error", "Fill all fields with valid data.")
+            return messagebox.showerror("Error", "Please fill all fields (Size, Core, Brand, Grade, Qty).")
 
-        # Check for duplicates in the list
+        # Check duplicates in the list
         for line in self.order_lines:
             if line['size'] == size and line['brand'] == brand and line['quality'] == quality:
-                return messagebox.showwarning("Duplicate", "This requirement is already in the order.")
+                return messagebox.showwarning("Duplicate", "This requirement is already in the list.")
 
         item_id = self.tree_order.insert("", "end", values=(size, brand, quality, qty, 0))
         self.order_lines.append({
             'size': size, 'brand': brand, 'quality': quality, 
-            'req': qty, 'scanned': 0, 'tree_id': item_id
+            'req': qty, 'scanned': 0, 'tree_id': item_id, 'pi_number': "LOCAL"
         })
-        self.var_qty.set("") # Clear qty for next entry
+        self.var_qty.set("") # Clear qty
+
+    # --- LOGIC ---
+    def load_dropdowns(self):
+        # Fetch unique, open PI numbers from the Master Orders table
+        try:
+            res = DBManager.fetch_data("SELECT DISTINCT pi_number FROM master_orders WHERE status != 'CLOSED'")
+            if res:
+                self.combo_pi['values'] = [r[0] for r in res]
+        except Exception as e:
+            print(f"Error loading PIs: {e}")
+            
+        # Also load the master catalog for the manual section
+        self.load_catalog_sizes()
+    def load_selected_order(self):
+        pi = self.combo_pi.get().strip()
+        if not pi:
+            return messagebox.showerror("Error", "Please select a Proforma Invoice (PI) first.")
+
+        # Clear existing grid
+        for i in self.tree_order.get_children(): self.tree_order.delete(i)
+        self.order_lines = []
+        
+        # Fetch all lines for this PI from Master Orders
+        q = "SELECT customer_name, tyre_size, brand, quality, req_qty FROM master_orders WHERE pi_number = %s AND status != 'CLOSED'"
+        res = DBManager.fetch_data(q, (pi,))
+        
+        if res:
+            # Save the customer name for the manifest
+            self.var_customer.set(res[0][0]) 
+            
+            for r in res:
+                size, brand, quality, req = r[1], r[2], r[3], r[4]
+                item_id = self.tree_order.insert("", "end", values=(size, brand, quality, req, 0))
+                self.order_lines.append({
+                    'size': size, 'brand': brand, 'quality': quality, 
+                    'req': req, 'scanned': 0, 'tree_id': item_id, 'pi_number': pi
+                })
+        else:
+            messagebox.showinfo("Info", "No pending items found for this PI.")
 
     def start_scanning(self):
         if not self.var_customer.get().strip():
-            return messagebox.showerror("Error", "Enter Customer Name.")
+            return messagebox.showerror("Error", "Please enter or load a Customer Name.")
         if not self.order_lines:
             return messagebox.showerror("Error", "Add at least one item to the order.")
 
         self.is_scanning = True
         self.ent_cust.config(state="disabled")
+        self.combo_pi.config(state="disabled")
+        self.btn_load_pi.config(state="disabled")
         self.btn_add.config(state="disabled")
         self.btn_lock.config(state="disabled")
         
         self.ent_scan.config(state="normal")
         self.ent_scan.focus_set()
         self.lbl_scan_status.config(text="READY TO SCAN", fg=C_SUCCESS)
+
 
     def process_scan(self, event):
         if not self.is_scanning: return
@@ -236,13 +302,17 @@ class DespatchApp:
         if self.is_scanning and not messagebox.askyesno("Cancel Order", "Are you sure you want to CANCEL this active order?"):
             return
         self.is_scanning = False
-        self.var_customer.set(""); self.var_size.set(""); self.var_brand.set(""); self.var_quality.set(""); self.var_qty.set(""); self.var_scan.set("")
+        self.var_customer.set(""); self.var_scan.set(""); self.combo_pi.set("")
         self.order_lines = []
         for i in self.tree_order.get_children(): self.tree_order.delete(i)
         for i in self.tree_scan.get_children(): self.tree_scan.delete(i)
-        self.ent_cust.config(state="normal"); self.btn_add.config(state="normal"); self.btn_lock.config(state="normal")
+        
+        self.combo_pi.config(state="readonly")
+        self.btn_add.config(state="normal")
+        self.btn_lock.config(state="normal")
         self.ent_scan.config(state="disabled")
         self.lbl_scan_status.config(text="AWAITING ORDER SETUP...", fg="gray")
+        self.load_dropdowns() # Refresh the PI list
 
     def finish_despatch(self):
         if not self.is_scanning and not self.order_lines:
@@ -372,12 +442,20 @@ class DespatchApp:
         tk.Label(f, text=title, font=("Segoe UI", 12, "bold"), bg=C_CARD, fg=C_HEADER).pack(anchor="w", pady=(0, 10)); return f
 
     def create_input_row(self, parent, label, var, row):
-        tk.Label(parent, text=label, bg=C_CARD, font=("Segoe UI", 9, "bold")).grid(row=row, column=0, sticky="w", pady=5)
-        cb = ttk.Combobox(parent, textvariable=var, font=("Segoe UI", 11), width=20)
-        cb.grid(row=row, column=1, sticky="w", pady=5)
-        if "Size" in label: self.combo_size = cb
-        elif "Brand" in label: self.combo_brand = cb
-        elif "Grade" in label: self.combo_quality = cb
+        tk.Label(parent, text=label, bg=C_CARD, font=("Segoe UI", 9, "bold")).grid(row=row, column=0, sticky="w", pady=2)
+        cb = ttk.Combobox(parent, textvariable=var, font=("Segoe UI", 10), width=18, state="readonly")
+        cb.grid(row=row, column=1, sticky="w", pady=2)
+        if "Tyre Size" in label: 
+            self.combo_size = cb
+            cb.bind("<<ComboboxSelected>>", self.on_size_select)
+        elif "Core Size" in label: 
+            self.combo_core = cb
+            cb.bind("<<ComboboxSelected>>", self.on_core_select)
+        elif "Brand" in label: 
+            self.combo_brand = cb
+            cb.bind("<<ComboboxSelected>>", self.on_brand_select)
+        elif "Grade" in label: 
+            self.combo_quality = cb
 
 if __name__ == "__main__":
     root = tk.Tk(); app = DespatchApp(root); root.mainloop()

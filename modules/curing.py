@@ -9,7 +9,7 @@ import csv
 from db_manager import DBManager
 
 # ================= CONFIGURATION =================
-LINUX_PRINTER_PATH = "/dev/usb/lp4" 
+LINUX_PRINTER_PATH = "/dev/usb/lp0" 
 CONFIG_FILE = "press_config.json"
 
 # COLORS
@@ -209,7 +209,7 @@ class CuringApp:
     def reprint_label(self):
         selected = self.tree_pending.selection()
         if not selected:
-            return messagebox.showwarning("Warning", "Please select a tyre from the queue to reprint.")
+            return messagebox.showwarning("Warning", "Please select a tyre from the queue to reprint.",parent=self.root)
             
         # Get data DIRECTLY from the selected row on the screen
         row_data = self.tree_pending.item(selected[0])['values']
@@ -217,7 +217,7 @@ class CuringApp:
         size = str(row_data[1]).strip()
         brand = str(row_data[2]).strip()
         
-        if messagebox.askyesno("Confirm Reprint", f"Are you sure you want to reprint the barcode label for:\n\nGreen ID: {green_id}\nSize: {size}\nBrand: {brand}"):
+        if messagebox.askyesno("Confirm Reprint", f"Are you sure you want to reprint the barcode label for:\n\nGreen ID: {green_id}\nSize: {size}\nBrand: {brand}",parent=self.root):
             try:
                 # ==========================================
                 # EPL PRINTER LOGIC
@@ -225,7 +225,7 @@ class CuringApp:
                 import platform
                 
                 # Format: Size | Brand (REPRINT) and the Barcode
-                epl = f'N\nq464\nQ200,24\nA47,30,0,3,1,1,N,"{size} | {brand} (REPRINT)"\nB60,70,0,1,2,5,90,B,"{green_id}"\nP1\n'
+                epl = f'N\nq464\nQ200,30\nA30,10,0,3,1,1,N,"{size} | {brand} (REPRINT)"\nB60,60,0,1,2,5,100,B,"{green_id}"\nP1\n'
                 
                 if platform.system() == "Linux":
                     # Note: Ensure LINUX_PRINTER_PATH is defined at the top of your file
@@ -236,10 +236,10 @@ class CuringApp:
                 # ==========================================
                 
                 print(f"Reprinting: {green_id} | {size} | {brand}") # Terminal test
-                messagebox.showinfo("Success", f"Label {green_id} sent to printer!")
+                messagebox.showinfo("Success", f"Label {green_id} sent to printer!",parent=self.root)
                     
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to reprint label: {e}")
+                messagebox.showerror("Error", f"Failed to reprint label: {e}",parent=self.root)
 
     def update_switch_color(self, btn, mode):
         if mode == "STD": btn.config(bg=C_SUCCESS, fg="white") 
@@ -429,10 +429,10 @@ class CuringApp:
         operator = self.var_operator.get()
 
         if not bid or not serial or not selected_press or not operator: 
-            return messagebox.showerror("Error", "Missing Fields/Operator")
+            return messagebox.showerror("Error", "Missing Fields/Operator",parent=self.root)
 
         build_info = DBManager.fetch_data("SELECT green_tyre_weight FROM pc1_building WHERE b_id=%s", (bid,))
-        if not build_info: return messagebox.showerror("Error", "B-ID Not Found")
+        if not build_info: return messagebox.showerror("Error", "B-ID Not Found",parent=self.root)
         g_weight = build_info[0][0] 
 
         press_key = self.normalize_press_id(selected_press)
@@ -440,7 +440,7 @@ class CuringApp:
         is_oven_mode = (mode == "OVEN")
 
         if is_oven_mode:
-            if not self.target_oven_id: return messagebox.showerror("Error", "Select Oven ID")
+            if not self.target_oven_id: return messagebox.showerror("Error", "Select Oven ID",parent=self.root)
             real_id_to_save = f"{self.target_oven_id} ({selected_press})"
             try: duration = int(self.var_time.get())
             except: duration = 180
@@ -472,25 +472,25 @@ class CuringApp:
             self.lbl_gt_operator.config(text="Operator: —")
             self.lbl_gt_age.config(text="Age: —")
             self.lbl_gt_weight.config(text="Weight: —")
-            messagebox.showinfo("Started", f"Curing Started: {real_id_to_save}")
+            messagebox.showinfo("Started", f"Curing Started: {real_id_to_save}",parent=self.root)
 
     def unload_press(self):
         sel_p = self.tree_press.selection()
         sel_o = self.tree_oven.selection()
         
-        if not sel_p and not sel_o: return messagebox.showwarning("Select Press", "Select a Running Press to Unload.")
+        if not sel_p and not sel_o: return messagebox.showwarning("Select Press", "Select a Running Press to Unload.",parent=self.root)
         
         if sel_p: press_id = self.tree_press.item(sel_p[0])['values'][0]
         else: press_id = self.tree_oven.item(sel_o[0])['values'][0]
 
-        if messagebox.askyesno("Confirm Unload", f"Unload {press_id}?\nThis stops the curing timer."):
+        if messagebox.askyesno("Confirm Unload", f"Unload {press_id}?\nThis stops the curing timer.",parent=self.root):
             # CALCULATE OVERCURE AND STOP TIMER
             q = """UPDATE pc2_curing SET status='COOLING', end_time=NOW(), 
                    overcure_minutes = ROUND(EXTRACT(EPOCH FROM (NOW() - start_time))/60 - curing_time_minutes)
                    WHERE press_no=%s AND status='CURING'"""
             if DBManager.execute_query(q, (press_id,)):
                 self.load_active_cures()
-                messagebox.showinfo("Unloaded", f"{press_id} is now COOLING.")
+                messagebox.showinfo("Unloaded", f"{press_id} is now COOLING.",parent=self.root)
 
     def load_active_cures(self):
         for i in self.tree_press.get_children(): self.tree_press.delete(i)
@@ -547,7 +547,7 @@ class CuringApp:
         tk.Entry(f, textvariable=var, width=8, font=("Segoe UI", 11)).pack()
 
     def print_c_label(self, serial, top_text):
-        epl = f'N\nq464\nQ200,24\nA47,30,0,3,1,1,N,"{top_text}"\nB60,70,0,1,2,5,90,B,"{serial}"\nP1\n'
+        epl = f'N\nq464\nQ200,24\nA40,30,0,3,1,1,N,"{top_text}"\nB20,60,0,1,2,5,90,B,"{serial}"\nP1\n'
         try:
             if platform.system() == "Linux":
                 with open(LINUX_PRINTER_PATH, "wb") as f: f.write(epl.encode())
@@ -599,10 +599,10 @@ class CuringApp:
 
     def save_qc(self):
         sid = self.var_cid.get(); wt = self.var_final_wt.get(); status = self.var_qc_status.get()
-        if not sid: return messagebox.showerror("Error", "Scan Serial Number first!")
+        if not sid: return messagebox.showerror("Error", "Scan Serial Number first!",parent=self.root)
         if status == "REJECT": wt = 0.0; flash_val = 0.0
         else:
-            if not wt: return messagebox.showerror("Error", "Enter Final Weight!")
+            if not wt: return messagebox.showerror("Error", "Enter Final Weight!",parent=self.root)
             try: flash_val = self.var_flash.get().split(" ")[0]
             except: flash_val = 0.0
         
@@ -651,8 +651,8 @@ class CuringApp:
             with open(path, 'w', newline='') as f:
                 writer = csv.writer(f); writer.writerow(["SERIAL", "BID", "SIZE", "PRESS", "MOULD", "START", "END", "PLAN", "OVERCURE", "WEIGHT", "FLASH", "QC", "OP"])
                 if res: writer.writerows(res)
-            messagebox.showinfo("Success", "Report Saved")
-        except Exception as e: messagebox.showerror("Error", str(e))
+            messagebox.showinfo("Success", "Report Saved",parent=self.root)
+        except Exception as e: messagebox.showerror("Error", str(e),parent=self.root)
 
     def reprint_selected(self):
         sel = self.hist_tree.selection()

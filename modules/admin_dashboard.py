@@ -11,7 +11,7 @@ class AdminDashboard:
     def __init__(self, root):
         self.root = root
         self.root.title("Admin | Factory Data Center")
-        self.root.geometry("1200x800")
+        self.root.geometry("1300x800")
         self.root.configure(bg="#f4f6f7")
 
         # Styles
@@ -36,6 +36,7 @@ class AdminDashboard:
         self.tab_spec = tk.Frame(nb, bg="white")
         self.tab_bead = tk.Frame(nb, bg="white")
         self.tab_mould = tk.Frame(nb, bg="white")
+        self.tab_presses = tk.Frame(nb, bg="white")
         self.tab_defects = tk.Frame(nb, bg="white") 
         
         nb.add(self.tab_users, text=" 👥 Users ")
@@ -46,6 +47,7 @@ class AdminDashboard:
         nb.add(self.tab_spec, text=" 3. Tyre Specs ")
         nb.add(self.tab_bead, text=" 4. Bead Master ")
         nb.add(self.tab_mould, text=" 5. Moulds ")
+        nb.add(self.tab_presses, text=" 🎰 Press Master ")
         nb.add(self.tab_defects, text=" 6. Defects ") 
         
         self.setup_user_tab()
@@ -56,7 +58,12 @@ class AdminDashboard:
         self.setup_spec_tab()
         self.setup_bead_tab()
         self.setup_mould_tab()
+        self.setup_press_master_tab()
         self.setup_defects_tab()
+
+        # Bind the tab change event to an auto-refresh function
+        self.nb = nb 
+        self.nb.bind("<<NotebookTabChanged>>", self.on_tab_change)
 
     # --- USER MANAGER ---
     def setup_user_tab(self):
@@ -102,7 +109,38 @@ class AdminDashboard:
         if SmartOrderParser:
             SmartOrderParser(self.root)
         else:
-            messagebox.showerror("Error", "Parser module missing or python-docx is not installed.")        
+            messagebox.showerror("Error", "Parser module missing or python-docx is not installed.",)  
+
+    def on_tab_change(self, event):
+        """Automatically refreshes data and clears inputs when switching tabs."""
+        selected_tab = event.widget.select()
+        tab_text = event.widget.tab(selected_tab, "text")
+
+        if "Users" in tab_text:
+            self.load_users()
+            self.ent_uid.delete(0, tk.END); self.ent_name.delete(0, tk.END)
+        elif "Raw Materials" in tab_text:
+            self.refresh_qc_list()
+        elif "Prod Plan" in tab_text:
+            self.refresh_plan_list()
+            self.load_master_dropdown()
+            self.load_active_presses()
+        elif "Master Orders" in tab_text:
+            self.load_master_orders()
+            for ent in [self.mo_pi, self.mo_cust, self.mo_size, self.mo_core, self.mo_brand, self.mo_qual, self.mo_qty]:
+                ent.delete(0, tk.END)
+        elif "Tyre Master" in tab_text:
+            self.load_catalog()
+            for ent in [self.cat_size, self.cat_core, self.cat_brand, self.cat_qual, self.cat_wt]:
+                ent.delete(0, tk.END)
+        elif "Tyre Specs" in tab_text:
+            self.refresh_spec_list()
+        elif "Bead Master" in tab_text:
+            self.refresh_bead_list()
+        elif "Moulds" in tab_text:
+            self.refresh_mould_list()
+        elif "Defects" in tab_text:
+            self.refresh_defect_list()              
 
     def add_user(self):
         uid = self.ent_uid.get().strip().upper()
@@ -202,7 +240,7 @@ class AdminDashboard:
         self.f_shared.pack(fill="x", pady=5)
 
         tk.Label(self.f_shared, text="Press ID (e.g., P1):", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=15)
-        self.plan_press = tk.Entry(self.f_shared, font=("Segoe UI", 11))
+        self.plan_press = ttk.Combobox(self.f_shared, state="readonly", font=("Segoe UI", 11))
         self.plan_press.pack(fill="x", padx=15, pady=2)
 
         tk.Label(self.f_shared, text="Daylight:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=15)
@@ -244,6 +282,7 @@ class AdminDashboard:
         self.refresh_plan_list()
         self.load_master_dropdown()
         self.toggle_plan_mode() # Initialize UI state
+        self.load_active_presses()
 
     # --- PLAN LOGIC & DROPDOWNS ---
     def toggle_plan_mode(self):
@@ -269,6 +308,10 @@ class AdminDashboard:
                 vals.append(display_text)
                 self.master_order_map[display_text] = oid
         self.plan_mo_cb['values'] = vals
+
+    def load_active_presses(self):
+        res = DBManager.fetch_data("SELECT press_id FROM press_master WHERE status='ACTIVE' ORDER BY press_id")
+        self.plan_press['values'] = [r[0] for r in res] if res else []    
 
     def autofill_plan_from_order(self, event):
         selection = self.plan_mo_cb.get()
@@ -711,7 +754,13 @@ class AdminDashboard:
         self.tree_defects = ttk.Treeview(self.tab_defects, columns=("Code", "Name", "Type", "Reason"), show="headings", height=15)
         for c in ("Code", "Name", "Type", "Reason"): self.tree_defects.heading(c, text=c)
         self.tree_defects.pack(fill="both", expand=True, padx=20, pady=10)
-        self.refresh_defect_list()
+        
+    def refresh_defect_list(self): 
+        self._refresh_tree(self.tree_defects, "SELECT defect_code, defect_name, defect_type, defect_reason FROM qc_defects_master ORDER BY defect_code")
+        
+    
+    def download_sample_defect(self): 
+        self._save_csv("Sample_Defects.csv", ["DEFECT_CODE", "DEFECT_NAME", "DEFECT_TYPE", "REASON"], [["DD001", "UNDER CURE", "DIRECT", "LESS TEMP"]])    
 
     def upload_defects(self):
         rows = self._read_csv_file()
@@ -722,8 +771,103 @@ class AdminDashboard:
                                        (r.get('DEFECT_CODE'), r.get('DEFECT_NAME'), r.get('DEFECT_TYPE'), r.get('REASON'))): count += 1
         messagebox.showinfo("Success", f"Uploaded {count} defects"); self.refresh_defect_list()
 
-    def refresh_defect_list(self): self._refresh_tree(self.tree_defects, "SELECT defect_code, defect_name, defect_type, defect_reason FROM qc_defects_master ORDER BY defect_code")
-    def download_sample_defect(self): self._save_csv("Sample_Defects.csv", ["DEFECT_CODE", "DEFECT_NAME", "DEFECT_TYPE", "REASON"], [["DD001", "UNDER CURE", "DIRECT", "LESS TEMP"]])
+    # ==========================================
+    # --- 🎰 PRESS MASTER (WITH DAYLIGHT) ---
+    # ==========================================
+    def setup_press_master_tab(self):
+        tk.Label(self.tab_presses, text="🎰 Manage Factory Presses & Daylights", font=("Segoe UI", 12, "bold"), bg="white").pack(pady=15)
+        
+        f_top = tk.Frame(self.tab_presses, bg="#F4F6F7", pady=10, padx=10, relief="ridge", bd=1)
+        f_top.pack(fill="x", padx=20, pady=5)
+        
+        tk.Label(f_top, text="Press ID:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="w", padx=2)
+        self.pm_id = tk.Entry(f_top, width=12); self.pm_id.grid(row=1, column=0, padx=2)
+
+        # --- NEW: Daylight Dropdown ---
+        tk.Label(f_top, text="Daylight:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).grid(row=0, column=1, sticky="w", padx=2)
+        self.pm_dl = ttk.Combobox(f_top, values=["TOP", "BOTTOM", "SINGLE", "1", "2", "3", "4"], width=10)
+        self.pm_dl.grid(row=1, column=1, padx=2)
+
+        tk.Label(f_top, text="Status:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).grid(row=0, column=2, sticky="w", padx=2)
+        self.pm_status = ttk.Combobox(f_top, values=["ACTIVE", "MAINTENANCE", "INACTIVE"], state="readonly", width=15)
+        self.pm_status.current(0); self.pm_status.grid(row=1, column=2, padx=2)
+
+        tk.Label(f_top, text="Remarks:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).grid(row=0, column=3, sticky="w", padx=2)
+        self.pm_remarks = tk.Entry(f_top, width=30); self.pm_remarks.grid(row=1, column=3, padx=2)
+
+        tk.Button(f_top, text="💾 SAVE", command=self.save_press, bg="#27AE60", fg="white", font=("Segoe UI", 9, "bold")).grid(row=1, column=4, padx=15)
+        # --- NEW: Delete Button ---
+        tk.Button(f_top, text="❌ DELETE", command=self.delete_press, bg="#C0392B", fg="white", font=("Segoe UI", 9, "bold")).grid(row=1, column=5, padx=5)
+        
+        cols = ("Press ID", "Daylight", "Status", "Remarks")
+        self.tree_pm = ttk.Treeview(self.tab_presses, columns=cols, show="headings", height=15)
+        for c in cols: self.tree_pm.heading(c, text=c)
+        
+        self.tree_pm.column("Press ID", width=100, anchor="center")
+        self.tree_pm.column("Daylight", width=100, anchor="center")
+        self.tree_pm.column("Status", width=120, anchor="center")
+        self.tree_pm.pack(fill="both", expand=True, padx=20, pady=10)
+        
+        self.load_press_master()
+
+    def save_press(self):
+        pid = self.pm_id.get().strip().upper()
+        dl = self.pm_dl.get().strip().upper() # Grab daylight
+        status = self.pm_status.get()
+        rem = self.pm_remarks.get().strip()
+        
+        if not pid or not dl: return messagebox.showerror("Error", "Enter both Press ID and Daylight", parent=self.root)
+        
+        # Notice the ON CONFLICT now checks both press_id AND daylight
+        q = """INSERT INTO press_master (press_id, daylight, status, remarks) 
+               VALUES (%s, %s, %s, %s) 
+               ON CONFLICT (press_id, daylight) DO UPDATE 
+               SET status=EXCLUDED.status, remarks=EXCLUDED.remarks"""
+               
+        if DBManager.execute_query(q, (pid, dl, status, rem)):
+            self.pm_id.delete(0, tk.END); self.pm_dl.set(''); self.pm_remarks.delete(0, tk.END)
+            self.load_press_master()
+            messagebox.showinfo("Success", f"{pid} ({dl}) Saved!", parent=self.root)
+
+    def delete_press(self):
+        sel = self.tree_pm.selection()
+        if not sel: 
+            return messagebox.showwarning("Warning", "Select a Press to delete from the list first.", parent=self.root)
+            
+        # Get the specific Press ID and Daylight from the clicked row
+        item = self.tree_pm.item(sel[0])['values']
+        press_id = str(item[0])
+        daylight = str(item[1])
+        
+        # Ask for confirmation so nobody accidentally deletes a machine!
+        if messagebox.askyesno("Confirm Deletion", f"Are you sure you want to permanently delete {press_id} ({daylight})?", parent=self.root):
+            
+            # Execute the SQL delete command
+            q = "DELETE FROM press_master WHERE press_id=%s AND daylight=%s"
+            if DBManager.execute_query(q, (press_id, daylight)):
+                self.load_press_master()
+                messagebox.showinfo("Success", f"{press_id} ({daylight}) has been deleted.", parent=self.root)        
+
+    def load_press_master(self):
+        for i in self.tree_pm.get_children(): self.tree_pm.delete(i)
+        res = DBManager.fetch_data("SELECT press_id, daylight, status, remarks FROM press_master ORDER BY press_id, daylight")
+        if res:
+            for r in res: self.tree_pm.insert("", "end", values=r)
+
+    def load_active_presses(self):
+        """Populate the dropdown in the Prod Plan tab with only ACTIVE press/daylight combos"""
+        res = DBManager.fetch_data("SELECT press_id, daylight FROM press_master WHERE status='ACTIVE' ORDER BY press_id, daylight")
+        
+        active_combos = []
+        if res:
+            for r in res:
+                # Format as "P-01 | TOP"
+                active_combos.append(f"{r[0]} | {r[1]}")
+                
+        # Update the combobox (assuming you named it self.plan_press)
+        self.plan_press['values'] = active_combos
+        if active_combos:
+            self.plan_press.current(0)
 
     # --- HELPERS ---
     def _build_upload_ui(self, parent, title, up_cmd, down_cmd, cols, refresh_cmd):
@@ -751,7 +895,7 @@ class AdminDashboard:
         if path:
             with open(path, 'w', newline='') as f:
                 w = csv.writer(f); w.writerow(header); w.writerows(rows)
-            messagebox.showinfo("Success", "File Saved")
+            messagebox.showinfo("Success", "File Saved",parent=self.root)
 
     def _refresh_tree(self, tree, query):
         for i in tree.get_children(): tree.delete(i)

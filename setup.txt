@@ -1,0 +1,86 @@
+Transferring your project from your development laptop to the Raspberry Pi for testing is a major milestone! Since your Pi already has Ubuntu Desktop installed, the process involves moving your Code, moving your Database, and setting up the Environment.
+
+Here is the step-by-step guide to doing this cleanly and safely.
+🗄️ Phase 1: Export your current Database (On your Laptop)
+
+You don't want to recreate all those tables and master data manually on the Pi. We will create a full backup file containing both your structure and your data.
+
+    Open your terminal (or Command Prompt) on your development laptop.
+
+    Run this command to export the entire database to a single SQL file:
+    Bash
+
+    pg_dump -U postgres -h localhost tyre_factory_db > factory_backup.sql
+
+    (It will ask for your postgres password).
+
+📂 Phase 2: Transfer the Files to the Pi
+
+The easiest and most reliable way in a factory environment is using a standard USB Flash Drive.
+
+    Create a folder on your USB drive called Factory_OS_Project.
+
+    Copy your entire Python project folder into it (including main_app.py, building.py, curing.py, qc.py, db_manager.py, admin_dashboard.py, and any .json or .csv files).
+
+    Copy the factory_backup.sql file you just created into the USB drive as well.
+
+    Plug the USB drive into your Raspberry Pi and copy the Factory_OS_Project folder to your Pi's Desktop or Documents folder.
+
+⚙️ Phase 3: Setup the Raspberry Pi (On the Pi)
+
+Now, switch over to your Raspberry Pi, open the terminal (Ctrl + Alt + T), and set up the environment.
+
+1. Install PostgreSQL and Python tools:
+Bash
+
+sudo apt update
+sudo apt install postgresql postgresql-contrib python3-pip python3-tk python3-venv
+
+2. Setup the Database and Password:
+Create the database and set the password to match your db_manager.py file (factory123):
+Bash
+
+sudo -u postgres psql -c "CREATE DATABASE tyre_factory_db;"
+sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'factory123';"
+
+3. Import your Backup:
+Navigate to where you saved your files (e.g., your Desktop) and inject the backup into the new database:
+Bash
+
+cd ~/Desktop/Factory_OS_Project
+sudo -u postgres psql tyre_factory_db < factory_backup.sql
+
+4. Set up the Python Environment:
+Modern Ubuntu versions restrict you from installing global pip packages to prevent breaking the OS. Creating a Virtual Environment (venv) is the professional way to handle this:
+Bash
+
+# Inside your project folder
+python3 -m venv venv
+
+# Activate the virtual environment
+source venv/bin/activate
+
+# Install your required libraries
+pip install psycopg2-binary tkcalendar
+
+🔌 Phase 4: Network Configuration Check
+
+Open your db_manager.py file on the Raspberry Pi.
+
+    If you are testing the UI directly ON the Pi's screen: You can temporarily change the IP to localhost to ensure it connects instantly:
+    Python
+
+    DB_HOST = "localhost"  # Change this back to the Pi's IP when PCs connect to it
+
+    If you are connecting your 3 Windows PCs to the Pi: Ensure the Pi is connected to the factory network. Find its IP address by running hostname -I in the terminal, and update DB_HOST = "192.168.x.x" to match exactly.
+
+🚀 Phase 5: Run the App!
+
+While still in your terminal (with your venv activated), simply launch your main app:
+Bash
+
+python3 main_app.py
+
+The Tkinter login screen should pop up on your Raspberry Pi!
+
+Would you like me to show you how to configure PostgreSQL's pg_hba.conf file on the Pi so that your 3 Windows PCs are allowed to talk to it over the network? (By default, PostgreSQL blocks external network connections for security).

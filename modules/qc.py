@@ -7,7 +7,7 @@ import csv
 from db_manager import DBManager
 
 # ================= CONFIGURATION =================
-LINUX_PRINTER_PATH = "/dev/usb/lp4" 
+LINUX_PRINTER_PATH = "/dev/usb/lp0" 
 
 # COLOR PALETTE (Modern & Colorful)
 C_BG = "#F4F6F7"       # Light Grey Background
@@ -309,7 +309,7 @@ class FinalQCApp:
         self.txt_history.config(state=tk.DISABLED) # Lock text box so user can't type in it
 
     def generate_html_card(self):
-        if not self.current_tyre_data: return messagebox.showerror("Error", "Scan a tyre first!")
+        if not self.current_tyre_data: return messagebox.showerror("Error", "Scan a tyre first!",parent=self.root)
         r = self.current_tyre_data
         is_pob = r[13]
         
@@ -409,11 +409,11 @@ class FinalQCApp:
         path = filedialog.asksaveasfilename(defaultextension=".html", initialfile=f"Passport_{r[14]}.html")
         if path:
             with open(path, "w") as f: f.write(html)
-            messagebox.showinfo("Success", "Passport Saved!")
+            messagebox.showinfo("Success", "Passport Saved!",parent=self.root)
 
     def submit_qc(self, grade):
         serial = self.var_scan.get().strip()
-        if not serial: return messagebox.showerror("Error", "Scan Tyre First")
+        if not serial: return messagebox.showerror("Error", "Scan Tyre First",parent=self.root)
         
         defects = "|".join(self.defect_list_store)
         remarks = self.var_remarks.get().strip()
@@ -443,7 +443,7 @@ class FinalQCApp:
                     DBManager.execute_query(q_update_master, (order_id,))
             # ==========================================
 
-            self.print_qc_label(serial, grade)
+            self.print_qc_label(serial, grade, self.ui_size.get(), self.ui_brand.get())
             messagebox.showinfo("Saved", f"Tyre Graded: {grade}"); self.reset_ui()
 
     # --- Helpers ---
@@ -466,11 +466,16 @@ class FinalQCApp:
         self.h_core_min.set(""); self.h_core_max.set(""); self.h_tread_min.set(""); self.h_tread_max.set("")
         self.clear_defects(); self.var_remarks.set("")
 
-    def print_qc_label(self, serial, grade):
+    def print_qc_label(self, serial, grade, size, brand):
         try:
             if platform.system() == "Linux":
-                with open(LINUX_PRINTER_PATH, "wb") as f: f.write(f'N\nq464\nQ200,24\nA20,10,0,4,1,1,N,"QC {grade}"\nB20,60,0,1,2,5,80,B,"{serial}"\nP1\n'.encode())
-        except: pass
+                # A20,10: Text at X=20, Y=10. Font 3. Combines Size, Brand, and Grade.
+                # B20,45: Barcode moved up to Y=45. Height increased to 100 for easier scanning.
+                epl = f'N\nq464\nQ200,24\nA20,10,0,3,1,1,N,"{size} {brand} | QC: {grade}"\nB20,45,0,1,2,5,100,B,"{serial}"\nP1\n'
+                with open(LINUX_PRINTER_PATH, "wb") as f: 
+                    f.write(epl.encode())
+        except Exception as e: 
+            print(f"Printer Error: {e}")
 
     def create_card(self, parent, title): 
         f = tk.Frame(parent, bg=C_CARD, bd=1, relief="solid", padx=10, pady=10);
@@ -533,6 +538,13 @@ class FinalQCApp:
         self.tree_qc_rep.column("Defects", width=180)
         self.tree_qc_rep.column("Inspector", width=100, anchor="center")
         self.tree_qc_rep.pack(fill="both", expand=True, padx=15, pady=10)
+        
+        # --- REPRINT BUTTONS FRAME ---
+        btn_f = tk.Frame(self.tab_report, bg=C_BG)
+        btn_f.pack(fill="x", padx=15, pady=5)
+        
+        tk.Button(btn_f, text="🖨️ REPRINT SELECTED", command=self.reprint_selected, bg=C_STAT_FG, fg="white", font=("Segoe UI", 10, "bold"), padx=10).pack(side="left", padx=5)
+        tk.Button(btn_f, text="⏪ REPRINT LAST", command=self.reprint_last, bg=C_HEADER, fg="white", font=("Segoe UI", 10, "bold"), padx=10).pack(side="right", padx=5)
 
     def generate_qc_report(self):
         start = self.qc_start_date.get().strip()
@@ -579,9 +591,47 @@ class FinalQCApp:
                 writer.writerow(["Date & Time", "Serial No", "Size", "Grade", "Defects", "Inspector"])
                 for child in self.tree_qc_rep.get_children():
                     writer.writerow(self.tree_qc_rep.item(child)["values"])
-            messagebox.showinfo("Success", "QC Report Exported Successfully!")
+            messagebox.showinfo("Success", "QC Report Exported Successfully!",parent=self.root)
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to export CSV: {e}")
+            messagebox.showerror("Error", f"Failed to export CSV: {e}",parent=self.root)
+            
+    def reprint_selected(self):
+        sel = self.tree_qc_rep.selection()
+        if not sel:
+            return messagebox.showwarning("Warning", "Please select a tyre from the list to reprint.",parent=self.root)
+        
+        # Grab the Serial No from the selected row (Index 1)
+        serial = self.tree_qc_rep.item(sel[0])['values'][1] 
+        
+        # Look up the exact details needed for the label
+        q = """SELECT c.serial_no, q.grade, b.tyre_size, b.brand 
+               FROM pc3_quality q
+               JOIN pc2_curing c ON q.tyre_id = c.serial_no
+               JOIN pc1_building b ON c.b_id = b.b_id
+               WHERE q.tyre_id = %s"""
+        res = DBManager.fetch_data(q, (serial,))
+        
+        if res:
+            self.print_qc_label(res[0][0], res[0][1], res[0][2], res[0][3])
+            messagebox.showinfo("Success", f"Reprinted label for {serial}",parent=self.root)
+        else:
+            messagebox.showerror("Error", "Could not fetch tyre details for reprinting.",parent=self.root)
+
+    def reprint_last(self):
+        # Grabs the absolute latest tyre that was QC'd
+        q = """SELECT c.serial_no, q.grade, b.tyre_size, b.brand 
+               FROM pc3_quality q
+               JOIN pc2_curing c ON q.tyre_id = c.serial_no
+               JOIN pc1_building b ON c.b_id = b.b_id
+               ORDER BY q.inspected_at DESC LIMIT 1"""
+        res = DBManager.fetch_data(q)
+        
+        if res:
+            self.print_qc_label(res[0][0], res[0][1], res[0][2], res[0][3])
+            messagebox.showinfo("Success", f"Reprinted label for {res[0][0]}",parent=self.root)
+        else:
+            messagebox.showinfo("Info", "No QC records found to reprint.",parent=self.root)        
+            
             
 if __name__ == "__main__":
     root = tk.Tk(); app = FinalQCApp(root); root.mainloop()

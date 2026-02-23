@@ -90,10 +90,13 @@ class DespatchApp:
         self.tree_order.heading("Grade", text="Grade"); self.tree_order.column("Grade", width=90)
         self.tree_order.heading("Req", text="Req"); self.tree_order.column("Req", width=50, anchor="center")
         self.tree_order.heading("Scan", text="Scan"); self.tree_order.column("Scan", width=50, anchor="center")
-        self.tree_order.pack(fill="both", expand=True, pady=10)
-
+        
+        # Create and pack the button FIRST, locking it to the bottom
         self.btn_lock = tk.Button(card_order, text="🔒 LOCK ORDER & START SCANNING", command=self.start_scanning, bg=C_WARN, fg="white", font=("Segoe UI", 12, "bold"), pady=5)
-        self.btn_lock.pack(fill="x")
+        self.btn_lock.pack(side="bottom", fill="x", pady=(0, 10))
+
+        # Pack the Treeview SECOND, so it takes the remaining space above the button
+        self.tree_order.pack(side="top", fill="both", expand=True, pady=(10, 5))
 
         # ================= RIGHT: SCANNER QUEUE =================
         self.f_right = tk.Frame(content, bg=C_BG)
@@ -235,9 +238,9 @@ class DespatchApp:
         self.var_scan.set("") # Clear immediately
         if not serial: return
 
-        # 1. Fetch Tyre Data (Checking Curing + Building + QC)
+        # 1. Fetch Tyre Data (UPDATED: Now fetching b.quality AND q.grade)
         q = """
-            SELECT c.serial_no, b.tyre_size, b.brand, q.grade, q.despatched_at 
+            SELECT c.serial_no, b.tyre_size, b.brand, b.quality, q.grade, q.despatched_at 
             FROM pc2_curing c 
             JOIN pc1_building b ON c.b_id = b.b_id 
             LEFT JOIN pc3_quality q ON c.serial_no = q.tyre_id 
@@ -249,17 +252,22 @@ class DespatchApp:
             return self.flash_status(f"❌ {serial}: NOT FOUND", C_ERR)
         
         r = res[0]
-        t_serial, t_size, t_brand, t_grade, t_despatched = r
+        t_serial, t_size, t_brand, t_b_quality, t_q_grade, t_despatched = r
 
-        # 2. Hard Validations
-        if not t_grade: return self.flash_status(f"❌ {serial}: PENDING QC", C_ERR)
-        if t_grade == "SCRAP": return self.flash_status(f"❌ {serial}: SCRAP TYRE!", C_ERR)
+        # 2. Hard Validations (Ensure it passed QC)
+        if not t_q_grade: return self.flash_status(f"❌ {serial}: PENDING QC", C_ERR)
+        if t_q_grade == "SCRAP": return self.flash_status(f"❌ {serial}: SCRAP TYRE!", C_ERR)
         if t_despatched: return self.flash_status(f"❌ {serial}: ALREADY SHIPPED!", C_ERR)
 
-        # 3. Matchmaker (Does it fit the order?)
+        # 3. Matchmaker (SMART MATCH: Checks both Product Quality and QC Grade)
         matched_line = None
         for line in self.order_lines:
-            if line['size'] == t_size and line['brand'] == t_brand and line['quality'] == t_grade:
+            size_match = (line['size'] == t_size)
+            brand_match = (line['brand'] == t_brand)
+            # It matches if the order asked for either the Product Quality (e.g., VPR01) OR the QC Grade (e.g., A-GRADE)
+            qual_match = (line['quality'] == t_b_quality) or (line['quality'] == t_q_grade)
+            
+            if size_match and brand_match and qual_match:
                 if line['scanned'] < line['req']:
                     matched_line = line
                     break
@@ -267,7 +275,8 @@ class DespatchApp:
         if not matched_line:
             # Check if it matches specs but we are full
             for line in self.order_lines:
-                if line['size'] == t_size and line['brand'] == t_brand and line['quality'] == t_grade:
+                qual_match = (line['quality'] == t_b_quality) or (line['quality'] == t_q_grade)
+                if line['size'] == t_size and line['brand'] == t_brand and qual_match:
                     return self.flash_status(f"⚠️ {serial}: QUOTA FULL FOR THIS SIZE", C_WARN)
             return self.flash_status(f"❌ {serial}: WRONG SIZE/BRAND/GRADE FOR ORDER", C_ERR)
 
@@ -282,7 +291,7 @@ class DespatchApp:
             
             # Update Right Grid
             t_now = datetime.datetime.now().strftime("%H:%M:%S")
-            self.tree_scan.insert("", "0", values=(t_now, serial, t_size, t_grade)) # Insert at top
+            self.tree_scan.insert("", "0", values=(t_now, serial, t_size, t_q_grade)) # Shows QC Grade in scan history
             
             self.flash_status(f"✅ {serial} DESPATCHED", C_SUCCESS)
             self.check_order_complete()
@@ -292,14 +301,14 @@ class DespatchApp:
         if complete:
             self.lbl_scan_status.config(text="🎉 ORDER COMPLETE!", fg=C_SUCCESS)
             self.ent_scan.config(state="disabled")
-            messagebox.showinfo("Success", "All tyres for this order have been successfully scanned and despatched!")
+            messagebox.showinfo("Success", "All tyres for this order have been successfully scanned and despatched!",parent=self.root)
 
     def flash_status(self, msg, color):
         self.lbl_scan_status.config(text=msg, fg=color)
         self.root.bell() # System beep for awareness
 
     def reset_system(self):
-        if self.is_scanning and not messagebox.askyesno("Cancel Order", "Are you sure you want to CANCEL this active order?"):
+        if self.is_scanning and not messagebox.askyesno("Cancel Order", "Are you sure you want to CANCEL this active order?",parent=self.root):
             return
         self.is_scanning = False
         self.var_customer.set(""); self.var_scan.set(""); self.combo_pi.set("")
@@ -316,7 +325,7 @@ class DespatchApp:
 
     def finish_despatch(self):
         if not self.is_scanning and not self.order_lines:
-            return messagebox.showinfo("Info", "No active order to finish.")
+            return messagebox.showinfo("Info", "No active order to finish.",parent=self.root)
 
         # Check if they scanned everything they promised
         is_short = any(line['scanned'] < line['req'] for line in self.order_lines)
@@ -325,19 +334,19 @@ class DespatchApp:
         if is_short:
             msg = "⚠️ WARNING: You have NOT scanned the full required quantity for this order!\n\nAre you sure you want to short-ship and finish?"
 
-        if messagebox.askyesno("Finish Despatch", msg):
+        if messagebox.askyesno("Finish Despatch", msg,parent=self.root):
             # Ask if they want a manifest before clearing
-            if messagebox.askyesno("Export", "Do you want to export an HTML Manifest before clearing the screen?"):
+            if messagebox.askyesno("Export", "Do you want to export an HTML Manifest before clearing the screen?",parent=self.root):
                 self.export_html()
             
             # Force the reset without the cancel warning
             self.is_scanning = False
             self.reset_system()
-            messagebox.showinfo("Success", "Despatch complete and screen cleared for the next order.")
+            messagebox.showinfo("Success", "Despatch complete and screen cleared for the next order.",parent=self.root)
 
     def export_csv(self):
         if not self.var_customer.get().strip():
-            return messagebox.showwarning("Warning", "No customer order to export.")
+            return messagebox.showwarning("Warning", "No customer order to export.",parent=self.root)
         
         path = filedialog.asksaveasfilename(defaultextension=".csv", initialfile=f"Manifest_{self.var_customer.get().strip()}.csv")
         if not path: return
@@ -363,13 +372,13 @@ class DespatchApp:
                 for child in self.tree_scan.get_children():
                     writer.writerow(self.tree_scan.item(child)["values"])
                     
-            messagebox.showinfo("Success", "CSV Exported Successfully!")
+            messagebox.showinfo("Success", "CSV Exported Successfully!",parent=self.root)
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to save CSV: {e}")
+            messagebox.showerror("Error", f"Failed to save CSV: {e}",parent=self.root)
 
     def export_html(self):
         if not self.var_customer.get().strip():
-            return messagebox.showwarning("Warning", "No customer order to export.")
+            return messagebox.showwarning("Warning", "No customer order to export.",parent=self.root)
             
         path = filedialog.asksaveasfilename(defaultextension=".html", initialfile=f"Manifest_{self.var_customer.get().strip()}.html")
         if not path: return
@@ -432,9 +441,9 @@ class DespatchApp:
         try:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(html)
-            messagebox.showinfo("Success", "HTML Manifest Saved!")
+            messagebox.showinfo("Success", "HTML Manifest Saved!",parent=self.root)
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to save HTML: {e}")    
+            messagebox.showerror("Error", f"Failed to save HTML: {e}",parent=self.root)    
 
     # --- HELPERS ---
     def create_card(self, parent, title): 
