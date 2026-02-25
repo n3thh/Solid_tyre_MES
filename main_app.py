@@ -1,56 +1,58 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-import sys
 import os
+import sys
 
-try:
-    from modules.despatch import DespatchApp
-except ImportError as e:
-    DespatchApp = None
-    print(f"⚠️ PC4 Module missing or has errors: {e}")
+# This finds the absolute path whether running as a script or a frozen exe
+if getattr(sys, 'frozen', False):
+    # If the app is running as a bundle (PyInstaller)
+    bundle_dir = sys._MEIPASS
+    # Add the bundle directory to the system path so it can find 'modules'
+    if bundle_dir not in sys.path:
+        sys.path.append(bundle_dir)
+else:
+    # If running as a normal python script
+    bundle_dir = os.path.dirname(os.path.abspath(__file__))
 
-# --- ATTEMPT IMPORTS (Safe Mode) ---
-# This prevents the Main App from crashing if a sub-module has an error
+# --- MODERN COLOR PALETTE ---
+C_BG = "#1A1A2E"        # Deep Midnight Blue
+C_CARD = "#16213E"      # Dark Navy Card
+C_ACCENT = "#E74C3C"    # Red Accent for Login
+C_TEXT = "#E1E1E1"      # Off-white
+C_HIGHLIGHT = "#0F3460" # Subtle Darker Blue
+C_NAVY_ACCENT = "#3282B8" # Steel Blue
+
+# --- MODULE IMPORTS (Safe Mode) ---
 try:
     from db_manager import DBManager
 except ImportError as e:
     print(f"CRITICAL ERROR: DBManager not found. {e}")
 
-# We import these inside the functions or wrap them to catch errors early
-try:
-    from modules.building import PC1SmartApp
-except ImportError:
-    PC1SmartApp = None
-    print("⚠️ PC1 Module missing or has errors")
+# Sub-modules
+modules = {
+    "PC1": ("modules.building", "PC1SmartApp"),
+    "PC2": ("modules.curing", "CuringApp"),
+    "PC3": ("modules.qc", "FinalQCApp"),
+    "PC4": ("modules.despatch", "DespatchApp"),
+    "LAB": ("modules.lab", "LabQCApp"),
+    "CRM": ("modules.crm", "CRMApp"),
+    "ADMIN": ("modules.admin_dashboard", "AdminDashboard")
+}
 
-try:
-    from modules.curing import CuringApp
-except ImportError:
-    CuringApp = None
-    print("⚠️ PC2 Module missing or has errors")
-
-try:
-    from modules.qc import FinalQCApp
-except ImportError:
-    FinalQCApp = None
-    print("⚠️ PC3 Module missing or has errors")
-
-try:
-    from modules.admin_dashboard import AdminDashboard
-except ImportError as e:
-    AdminDashboard = None
-    print(f"⚠️ Admin Module missing or has errors: {e}")
-
-# CONFIGURATION
-C_BG = "#2C3E50"       # Dark Blue Background
-C_ACCENT = "#E74C3C"   # Red Accent
-C_TEXT = "#ECF0F1"     # White    Text
+# Dynamically import and handle missing modules
+for key, (path, attr) in modules.items():
+    try:
+        mod = __import__(path, fromlist=[attr])
+        globals()[attr] = getattr(mod, attr)
+    except Exception as e:
+        globals()[attr] = None
+        print(f"⚠️ {key} Module ({path}) missing or has errors: {e}")
 
 class MainLauncher:
     def __init__(self, root):
         self.root = root
         self.root.title("Tyre Factory | Main System Launcher")
-        self.root.geometry("600x500")
+        self.root.geometry("1200x800")
         self.root.configure(bg=C_BG)
 
         self.current_user_name = "ADMIN"
@@ -60,79 +62,63 @@ class MainLauncher:
         self.setup_login_ui()
 
     def setup_login_ui(self):
-        # Clear existing widgets (if returning from logout)
-        for widget in self.root.winfo_children():
-            widget.destroy()
+        for widget in self.root.winfo_children(): widget.destroy()
+        self.root.configure(bg=C_BG)
 
         # Header
         tk.Label(self.root, text="🏭 FACTORY SMART SYSTEM", font=("Segoe UI", 24, "bold"), bg=C_BG, fg="white").pack(pady=(50, 10))
         tk.Label(self.root, text="Production & Traceability Suite", font=("Segoe UI", 12), bg=C_BG, fg="#BDC3C7").pack(pady=(0, 30))
 
         # Login Card
-        f_login = tk.Frame(self.root, bg="white", padx=40, pady=40, bd=2, relief="solid")
+        f_login = tk.Frame(self.root, bg="white", padx=40, pady=40, bd=0)
         f_login.pack(padx=20, pady=10)
 
         tk.Label(f_login, text="Select User Profile:", font=("Segoe UI", 11, "bold"), bg="white", fg="#2C3E50").pack(anchor="w")
-        
-        # User Dropdown
         self.combo_user = ttk.Combobox(f_login, font=("Segoe UI", 14), width=30, state="readonly")
         self.combo_user.pack(pady=15)
 
-        # Password Input
         tk.Label(f_login, text="Password:", font=("Segoe UI", 11, "bold"), bg="white", fg="#2C3E50").pack(anchor="w", pady=(10, 0))
         self.var_password = tk.StringVar()
         self.ent_password = tk.Entry(f_login, textvariable=self.var_password, font=("Segoe UI", 14), width=30, show="*")
         self.ent_password.pack(pady=5)
         
-        # Login Button
+        # UI Polish: Auto-focus and Enter-key Binding
+        self.ent_password.focus_set()
+        self.ent_password.bind("<Return>", lambda event: self.do_login())
+
         btn = tk.Button(f_login, text="🔓 SECURE LOGIN", bg=C_ACCENT, fg="white", font=("Segoe UI", 12, "bold"), 
-                        width=25, command=self.do_login, relief="flat")
-        btn.pack(pady=10)
+                        width=25, command=self.do_login, relief="flat", cursor="hand2")
+        btn.pack(pady=20)
         
-        # Status Footer
         self.lbl_status = tk.Label(self.root, text="Connecting to DB...", bg=C_BG, fg="#95A5A6", font=("Segoe UI", 9))
         self.lbl_status.pack(side="bottom", pady=10)
 
-        # Load Data
         self.root.after(500, self.load_users)
 
     def load_users(self):
         try:
-            # Check DB Connection
-            if not DBManager.get_connection():
-                raise Exception("No Connection")
-
-            # Fetch active users including passwords
+            if not DBManager.get_connection(): raise Exception("No Connection")
             query = "SELECT user_id, full_name, role, password FROM users WHERE is_active=TRUE ORDER BY role, full_name"
             res = DBManager.fetch_data(query)
             
             self.user_map = {}
             display_list = []
-
             if res:
-                for r in res:
-                    uid, name, role, pwd = r
+                for uid, name, role, pwd in res:
                     display_text = f"{role} | {name} ({uid})"
-                    # We now store the password in the map as well
                     self.user_map[display_text] = (uid, name, role, pwd)
-                    display_list.append(display_text) # <-- This was the missing piece!
-                
+                    display_list.append(display_text)
                 self.combo_user['values'] = display_list
-                if display_list:
-                    self.combo_user.current(0)
+                if display_list: self.combo_user.current(0)
                 self.lbl_status.config(text="✅ Database Connected", fg="#2ECC71")
             else:
                 self.load_fallback_user()
-
         except Exception as e:
-            print(f"DB Error: {e}")
             self.load_fallback_user()
             self.lbl_status.config(text="⚠️ Offline Mode / DB Error", fg="#F1C40F")
 
     def load_fallback_user(self):
-        # Fallback if DB fails so you can still test UI
         fallback = "ADMIN | System Admin (LOCAL)"
-        # ADDED "1234" as the 4th value so unpacking works!
         self.user_map = {fallback: ("ADMIN", "System Admin", "ADMIN", "1234")} 
         self.combo_user['values'] = [fallback]
         self.combo_user.current(0)
@@ -140,108 +126,91 @@ class MainLauncher:
     def do_login(self):
         selection = self.combo_user.get()
         typed_password = self.var_password.get()
-
-        if not selection:
-            messagebox.showwarning("Login", "Please select a user first.")
-            return
-
         user_data = self.user_map.get(selection)
-        if user_data:
-            # Unpack the 4 variables now
-            uid, name, role, db_password = user_data
-            
-            # Verify Password
-            if typed_password != db_password:
-                messagebox.showerror("Access Denied", "Incorrect Password!")
-                self.var_password.set("") # Clear the box
-                return
 
-            # If password is correct, proceed
-            self.current_user_name = name
-            self.current_role = role
-            self.open_main_menu()
+        if user_data:
+            uid, name, role, db_password = user_data
+            if typed_password == str(db_password):
+                self.current_user_name = name
+                self.current_role = role
+                self.open_main_menu()
+            else:
+                messagebox.showerror("Access Denied", "Incorrect Password!", parent=self.root)
+                self.var_password.set("")
 
     def open_main_menu(self):
         for widget in self.root.winfo_children(): widget.destroy()
+        self.root.configure(bg=C_BG)
         
-        # Header
-        header = tk.Frame(self.root, bg="#34495E", height=80)
+        # Top Nav Bar
+        header = tk.Frame(self.root, bg=C_HIGHLIGHT, height=60)
         header.pack(fill="x")
-        tk.Label(header, text=f"👤 {self.current_user_name}", font=("Segoe UI", 14, "bold"), bg="#34495E", fg="white").pack(side="left", padx=20)
-        tk.Label(header, text=f"ROLE: {self.current_role}", font=("Segoe UI", 10, "bold"), bg="#34495E", fg="#F1C40F").pack(side="right", padx=20)
+        tk.Label(header, text=f"👤 {self.current_user_name}", font=("Segoe UI", 12, "bold"), 
+                 bg=C_HIGHLIGHT, fg="white").pack(side="left", padx=30)
+        tk.Button(header, text="LOGOUT", command=self.setup_login_ui, bg="#E74C3C", fg="white", 
+                  font=("Segoe UI", 9, "bold"), relief="flat", padx=15).pack(side="right", padx=20, pady=10)
 
-        tk.Label(self.root, text="SELECT WORKSTATION", font=("Segoe UI", 16, "bold"), bg=C_BG, fg="white").pack(pady=(40,20))
+        # Content Title
+        tk.Label(self.root, text="FACTORY CONTROL CENTER", font=("Segoe UI", 22, "bold"), 
+                 bg=C_BG, fg=C_TEXT).pack(pady=(40,10))
 
-        # Menu Buttons
-        f_menu = tk.Frame(self.root, bg=C_BG)
-        f_menu.pack(pady=10)
+        f_grid = tk.Frame(self.root, bg=C_BG)
+        f_grid.pack(expand=True)
 
-        # 1. PC1 - BUILDING (Operators + Admin)
-        self.create_menu_btn(f_menu, "🏗️ PC1 - BUILDING STATION", "#27AE60", self.launch_building)
+        # Card Config
+        stations = [
+            ("🏗️", "PC1 - BUILDING", "#27AE60", self.launch_building, True),
+            ("🔥", "PC2 - CURING", "#E67E22", self.launch_curing, True),
+            ("🛡️", "PC3 - FINAL QC", "#2980B9", self.launch_qc, self.current_role in ["SUPERVISOR", "MANAGER", "ADMIN", "QC"]),
+            ("🚚", "PC4 - DESPATCH", "#34495E", self.launch_despatch, self.current_role in ["LOGISTICS", "SUPERVISOR", "MANAGER", "ADMIN", "QC"]),
+            ("🧪", "LAB - APPROVAL", "#8E44AD", self.launch_lab, self.current_role in ["QC", "SUPERVISOR", "MANAGER", "ADMIN"]),
+            ("💼", "CRM & SALES", "#D35400", self.launch_crm, self.current_role in ["MANAGER", "ADMIN", "SALES"]), # <--- ADD THIS LINE
+            ("⚙️", "ADMIN PANEL", "#34495E", self.launch_admin, self.current_role in ["MANAGER", "ADMIN"])
+        ]
 
-        # 2. PC2 - CURING (Operators + Admin)
-        self.create_menu_btn(f_menu, "🔥 PC2 - CURING STATION", "#E67E22", self.launch_curing)
+        r, c = 0, 0
+        for icon, label, color, cmd, has_perm in stations:
+            if has_perm:
+                self.create_modern_card(f_grid, icon, label, color, cmd, r, c)
+                c += 1
+                if c > 2:
+                    c = 0; r += 1
 
-        # 3. PC3 - QC (QC + Admin)
-        if self.current_role in ["SUPERVISOR", "MANAGER", "ADMIN", "QC"]:
-            self.create_menu_btn(f_menu, "🛡️ PC3 - FINAL QC", "#8E44AD", self.launch_qc)
-
-        # 4. PC4 - DESPATCH (Logistics, QC + Admin)
-        if self.current_role in ["LOGISTICS", "SUPERVISOR", "MANAGER", "ADMIN", "QC"]:
-            self.create_menu_btn(f_menu, "🚚 PC4 - DESPATCH MANAGER", "#34495E", self.launch_despatch)
-
-
-        # 5. ADMIN DASHBOARD (Admin Only)
-        if self.current_role in ["MANAGER", "ADMIN"]:
-            self.create_menu_btn(f_menu, "⚙️ ADMIN DASHBOARD & SETUP", "#2C3E50", self.launch_admin)
-
+    def create_modern_card(self, parent, icon, label, color, command, r, c):
+        card = tk.Frame(parent, bg=C_CARD, highlightthickness=1, highlightbackground=color)
+        card.grid(row=r, column=c, padx=15, pady=15)
         
-
-        # Logout
-        tk.Button(self.root, text="⬅ LOGOUT", command=self.setup_login_ui, bg="#95A5A6", fg="white", font=("Segoe UI", 10)).pack(side="bottom", pady=30)
-
-    def create_menu_btn(self, parent, text, color, command):
-        btn = tk.Button(parent, text=text, bg=color, fg="white", font=("Segoe UI", 14, "bold"), width=35, height=2, command=command, relief="flat", cursor="hand2")
-        btn.pack(pady=8)
+        btn = tk.Button(card, text=f"{icon}\n{label}", font=("Segoe UI", 12, "bold"), bg=C_CARD, fg="white",
+                       width=20, height=5, relief="flat", command=command, cursor="hand2",
+                       activebackground=color)
+        btn.pack()
+        tk.Frame(card, bg=color, height=5).pack(fill="x", side="bottom")
 
     # --- LAUNCHERS ---
-    def launch_building(self):
-        if PC1SmartApp:
-            win = tk.Toplevel(self.root)
-            app = PC1SmartApp(win)
-        else:
-            messagebox.showerror("Error", "Building Module (modules/building.py) missing!")
+    def launch_building(self): self._launch(PC1SmartApp, "PC1")
+    def launch_curing(self): self._launch(CuringApp, "PC2", True)
+    def launch_qc(self): self._launch(FinalQCApp, "PC3", True)
+    def launch_despatch(self): self._launch(DespatchApp, "PC4", True)
+    def launch_lab(self): self._launch(LabQCApp, "LAB", True)
+    def launch_admin(self): self._launch(AdminDashboard, "ADMIN")
+    def launch_crm(self): self._launch(CRMApp, "CRM", True)
 
-    def launch_curing(self):
-        if CuringApp:
+    def _launch(self, app_class, name, pass_user=False):
+        if app_class:
             win = tk.Toplevel(self.root)
-            # Pass the logged-in user's name
-            app = CuringApp(win, current_user=self.current_user_name)
+            if pass_user: app_class(win, current_user=self.current_user_name)
+            else: app_class(win)
         else:
-            messagebox.showerror("Error", "Curing Module (modules/curing.py) missing!")
-
-    def launch_qc(self):
-        if FinalQCApp:
-            win = tk.Toplevel(self.root)
-            app = FinalQCApp(win, current_user=self.current_user_name)
-        else:
-            messagebox.showerror("Error", "QC Module (modules/qc.py) missing!")
-
-    def launch_despatch(self):
-        if DespatchApp:
-            win = tk.Toplevel(self.root)
-            app = DespatchApp(win, current_user=self.current_user_name)
-        else:
-            messagebox.showerror("Error", "Despatch Module (modules/despatch.py) missing or has errors!")        
-
-    def launch_admin(self):
-        if AdminDashboard:
-            win = tk.Toplevel(self.root)
-            app = AdminDashboard(win)
-        else:
-            messagebox.showerror("Error", "Admin Module (modules/admin_dashboard.py) missing or has errors!")
+            messagebox.showerror("Error", f"{name} Module missing or corrupted!", parent=self.root)
 
 if __name__ == "__main__":
     root = tk.Tk()
+    
+    # --- CROSS-PLATFORM MAXIMIZE ---
+    if sys.platform == "win32":
+        root.state('zoomed') # Works on Windows
+    else:
+        root.attributes('-zoomed', True) # Works on Linux (Ubuntu/Raspberry Pi)
+    
     app = MainLauncher(root)
     root.mainloop()

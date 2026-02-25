@@ -1,0 +1,49 @@
+📦 1. Install PyInstaller
+
+Ensure you are in your virtual environment and run:
+Bash
+
+pip install pyinstaller
+
+pyinstaller --noconfirm --onedir --windowed \
+--collect-submodules modules \
+--add-data "modules:modules" \
+--add-data "db_manager.py:." \
+--hidden-import modules.building \
+--hidden-import modules.curing \
+--hidden-import modules.qc \
+--hidden-import modules.despatch \
+--hidden-import modules.lab \
+--hidden-import modules.admin_dashboard \
+--name "TyreFactorySystem" \
+main_app.py
+
+
+🛠️ Method 1: Backup via Terminal (Recommended)
+
+Since your database is at 192.168.0.141, run this command from your current Linux terminal (where your venv is):
+Bash
+
+pg_dump -h 192.168.0.141 -U postgres -d tyre_factory_db > factory_backup_$(date +%Y%m%d).sql
+
+    -h: Host (Pi's IP).
+
+    -U: Username (postgres).
+
+    -d: Your database name.
+
+    >: Redirects the output to a file with today's date.
+
+🐘 Method 2: Backup via pgAdmin 4
+
+If you prefer a graphical interface:
+
+    Right-click on your database in the browser tree.
+
+    Select Backup....
+
+    In the Filename box, click the folder icon and choose where to save it (e.g., factory_backup.sql).
+
+    Set Format to Plain (for a readable SQL file) or Custom (for faster restores).
+
+    Click Backup.

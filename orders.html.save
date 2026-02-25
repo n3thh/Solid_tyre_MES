@@ -1,0 +1,30 @@
+<table id="ordersTable">
+  <thead>
+    <tr>
+      <th>Order ID</th>
+      <th>PI Number</th>
+      <th>Customer</th>
+      <th>Tyre Size</th>
+      <th>Req Qty</th>
+      <th>Status</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>PI-2026-001</td>
+      <td>Global Tyre Distributors</td>
+      <td>18x7-8</td>
+      <td>300</td>
+      <td>OPEN</td>
+      <td>
+        <button onclick="editOrder(1)">Edit</button>
+        <button onclick="deleteOrder(1)">Delete</button>
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+
+

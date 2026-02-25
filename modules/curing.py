@@ -345,12 +345,12 @@ class CuringApp:
             return
 
         # 2. Fetch Full Data from Building table
-        # ADDED 'b.quality' to the query so we can display the grade
+        # 2. Fetch Full Data from Building table (ADDED: b.status)
         q = """
             SELECT 
                 b.tyre_size, b.brand, b.pattern, b.green_tyre_weight, 
                 b.press_id, b.daylight, b.created_at, b.operator_id, b.tread_type,
-                b.quality 
+                b.quality, b.status 
             FROM pc1_building b
             WHERE b.b_id = %s
         """
@@ -358,6 +358,24 @@ class CuringApp:
         
         if res:
             r = res[0]
+            status = r[10] # The PC1 Status
+            
+            # --- THE NEW STRICT GATEKEEPER ---
+            if status != 'COMPLETED':
+                self.lbl_gt_size.config(text=f"❌ REJECTED: PARTIAL TYRE", fg="red")
+                self.lbl_gt_brand.config(text="Missing Tread Layer & Weight")
+                self.lbl_gt_operator.config(text="Operator: —")
+                self.lbl_gt_age.config(text="Age: —")
+                self.lbl_gt_weight.config(text="Weight: —")
+                
+                # Clear the serial number so they can't force a start
+                self.var_serial.set("") 
+                self.target_oven_id = None
+                
+                self.root.bell() # Play an error sound
+                return
+            # ----------------------------------
+
             # Unpack data (Indices match the SELECT order)
             size = r[0]
             brand = r[1]
@@ -368,7 +386,7 @@ class CuringApp:
             build_time = r[6]
             builder_name = r[7] if r[7] else "Unknown"
             tread = r[8]
-            grade = r[9] if r[9] else "STD"  # <--- FIXED: Now 'grade' is defined
+            grade = r[9] if r[9] else "STD"
 
             # Calculate Age
             age_str = "0h 0m"
@@ -431,7 +449,16 @@ class CuringApp:
         if not bid or not serial or not selected_press or not operator: 
             return messagebox.showerror("Error", "Missing Fields/Operator",parent=self.root)
 
-        build_info = DBManager.fetch_data("SELECT green_tyre_weight FROM pc1_building WHERE b_id=%s", (bid,))
+        build_info = DBManager.fetch_data("SELECT green_tyre_weight, status FROM pc1_building WHERE b_id=%s", (bid,))
+        if not build_info: 
+            return messagebox.showerror("Error", "B-ID Not Found", parent=self.root)
+            
+        g_weight, b_status = build_info[0]
+        
+        if b_status != 'COMPLETED' or g_weight is None or g_weight <= 0:
+            return messagebox.showerror("CRITICAL ERROR", "This tyre is a PARTIAL build.\n\nIt must have a tread layer applied and a Green Weight recorded in PC1 before it can be cured.", parent=self.root)
+        # -----------------------------
+        
         if not build_info: return messagebox.showerror("Error", "B-ID Not Found",parent=self.root)
         g_weight = build_info[0][0] 
 
