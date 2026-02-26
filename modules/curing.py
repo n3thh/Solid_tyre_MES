@@ -9,7 +9,7 @@ import csv
 from db_manager import DBManager
 
 # ================= CONFIGURATION =================
-LINUX_PRINTER_PATH = "/dev/usb/lp0" 
+LINUX_PRINTER_PATH = "/dev/usb/lp4" 
 CONFIG_FILE = "press_config.json"
 
 # COLORS
@@ -302,35 +302,34 @@ class CuringApp:
 
         tk.Button(card, text="🔥 START CURING", command=self.start_curing, bg=C_ACCENT, fg="white", font=("Segoe UI", 12, "bold"), pady=10).pack(fill="x", pady=20)
 
-        # RIGHT DASHBOARD
-        right = tk.Frame(self.tab1, bg=C_BG); right.pack(side="right", fill="both", expand=True, padx=10, pady=10)
+        # RIGHT side for dashboards
+        right = tk.Frame(self.tab1, bg=C_BG)
+        right.pack(side="right", fill="both", expand=True, padx=10, pady=10)
         
-        style = ttk.Style()
-        style.configure("Treeview", rowheight=30, font=("Segoe UI", 10))
-        style.map("Treeview", background=[('selected', '#3498DB')])
-
+        # 1. DEFINE PRESS TREE FIRST
         tk.Label(right, text="🏭 ACTIVE PRESSES", bg=C_BG, fg="white", font=("Segoe UI", 11, "bold")).pack(anchor="w")
         cols_p = ("Press", "Mould", "Size", "Status")
         self.tree_press = ttk.Treeview(right, columns=cols_p, show="headings", height=8)
         for c in cols_p: self.tree_press.heading(c, text=c); self.tree_press.column(c, width=90)
-        self.tree_press.tag_configure('overdue', background=C_OVERDUE, foreground='white')
-        self.tree_press.tag_configure('normal', background="white", foreground='black')
         self.tree_press.pack(fill="both", expand=True, pady=(0, 10))
         
         # UNLOAD BUTTON
-        tk.Button(right, text="❄️ UNLOAD SELECTED PRESS (STOP TIMER)", command=self.unload_press, bg="#2980B9", fg="white", font=("Segoe UI", 11, "bold")).pack(fill="x", pady=5)
+        tk.Button(right, text="❄️ UNLOAD SELECTED PRESS", command=self.unload_press, bg="#2980B9", fg="white", font=("Segoe UI", 11, "bold")).pack(fill="x", pady=5)
 
+        # 2. DEFINE OVEN TREE SECOND (Crucial: Must exist before the tag loop!)
         tk.Label(right, text="🔥 OVEN QUEUE", bg=C_BG, fg="orange", font=("Segoe UI", 11, "bold")).pack(anchor="w")
         cols_o = ("Oven", "Mould", "Size", "Status")
         self.tree_oven = ttk.Treeview(right, columns=cols_o, show="headings", height=8)
-        self.tree_oven.column("Oven", width=140)
-        for c in cols_o: self.tree_oven.heading(c, text=c)
-        self.tree_oven.tag_configure('overdue', background=C_OVERDUE, foreground='white')
-        self.tree_oven.tag_configure('normal', background="white", foreground='black')
+        for c in cols_o: self.tree_oven.heading(c, text=c); self.tree_oven.column(c, width=140)
         self.tree_oven.pack(fill="both", expand=True)
-        
-        tk.Button(right, text="🔄 Refresh Boards", command=self.load_active_cures).pack(fill="x")
 
+        # 3. CONFIGURE TAGS FOR BOTH (Only after both exist)
+        for tree in [self.tree_press, self.tree_oven]:
+            tree.tag_configure('overdue', background='#E74C3C', foreground='white')
+            tree.tag_configure('even', background='#FFFFFF')
+            tree.tag_configure('odd', background='#F2F4F4')
+
+        tk.Button(right, text="🔄 Refresh Boards", command=self.load_active_cures).pack(fill="x")
     # ================= LOGIC =================
     def lookup_green_tyre(self, event):
         bid = self.var_bid.get().strip().upper()
@@ -361,19 +360,18 @@ class CuringApp:
             status = r[10] # The PC1 Status
             
             # --- THE NEW STRICT GATEKEEPER ---
-            if status != 'COMPLETED':
-                self.lbl_gt_size.config(text=f"❌ REJECTED: PARTIAL TYRE", fg="red")
-                self.lbl_gt_brand.config(text="Missing Tread Layer & Weight")
-                self.lbl_gt_operator.config(text="Operator: —")
-                self.lbl_gt_age.config(text="Age: —")
-                self.lbl_gt_weight.config(text="Weight: —")
+            if res:
+                r = res[0]
+                status = r[10] # PC1 Status from your query
                 
-                # Clear the serial number so they can't force a start
-                self.var_serial.set("") 
-                self.target_oven_id = None
-                
-                self.root.bell() # Play an error sound
-                return
+                if status != 'COMPLETED':
+                    self.lbl_gt_size.config(text="❌ REJECTED: PARTIAL", fg="red")
+                    # Explicit Warning Popup
+                    messagebox.showwarning("Incomplete Tyre", 
+                        f"Tyre {bid} is marked as 'PARTIAL' in Building.\n\n"
+                        "It must have a Tread Layer and Weight entered before curing.", 
+                        parent=self.root)
+                    return
             # ----------------------------------
 
             # Unpack data (Indices match the SELECT order)
@@ -505,45 +503,72 @@ class CuringApp:
         sel_p = self.tree_press.selection()
         sel_o = self.tree_oven.selection()
         
-        if not sel_p and not sel_o: return messagebox.showwarning("Select Press", "Select a Running Press to Unload.",parent=self.root)
+        if not sel_p and not sel_o: 
+            return messagebox.showwarning("Select Press", "Select a Running Press to Unload.")
         
-        if sel_p: press_id = self.tree_press.item(sel_p[0])['values'][0]
-        else: press_id = self.tree_oven.item(sel_o[0])['values'][0]
+        # Determine which tree/item is selected
+        tree = self.tree_press if sel_p else self.tree_oven
+        item_id = sel_p[0] if sel_p else sel_o[0]
+        vals = tree.item(item_id)['values']
+        press_id, status_val = vals[0], str(vals[3])
 
-        if messagebox.askyesno("Confirm Unload", f"Unload {press_id}?\nThis stops the curing timer.",parent=self.root):
-            # CALCULATE OVERCURE AND STOP TIMER
+        # --- EARLY UNLOAD CHECK ---
+        if "min" in status_val and "OVERDUE" not in status_val:
+            try:
+                # Extract numeric minutes from string like "14 min"
+                rem_min = int(status_val.split()[0])
+                if rem_min > 0:
+                    warn_msg = f"🛑 EARLY UNLOAD DETECTED!\n\nThis tyre still requires {rem_min} minutes of curing.\n\nAre you sure you want to pull it out early?"
+                    if not messagebox.askyesno("Process Safeguard", warn_msg, parent=self.root):
+                        return # Cancel the unload process
+            except (ValueError, IndexError):
+                pass # Fallback if string formatting varies
+
+        # Standard Unload Confirmation
+        if messagebox.askyesno("Confirm Unload", f"Unload {press_id}?\nThis stops the curing timer.", parent=self.root):
             q = """UPDATE pc2_curing SET status='COOLING', end_time=NOW(), 
                    overcure_minutes = ROUND(EXTRACT(EPOCH FROM (NOW() - start_time))/60 - curing_time_minutes)
                    WHERE press_no=%s AND status='CURING'"""
             if DBManager.execute_query(q, (press_id,)):
                 self.load_active_cures()
-                messagebox.showinfo("Unloaded", f"{press_id} is now COOLING.",parent=self.root)
+                messagebox.showinfo("Unloaded", f"{press_id} is now COOLING.", parent=self.root)
 
     def load_active_cures(self):
+        # Clear existing rows
         for i in self.tree_press.get_children(): self.tree_press.delete(i)
         for i in self.tree_oven.get_children(): self.tree_oven.delete(i)
         
-        # SHOW ACTIVE CURING (Timer counts DOWN into NEGATIVE if late)
         q = """SELECT c.press_no, c.mould_no, b.tyre_size, c.curing_time_minutes, c.is_oven, 
                EXTRACT(EPOCH FROM (NOW() - c.start_time)) 
                FROM pc2_curing c JOIN pc1_building b ON c.b_id = b.b_id WHERE c.status='CURING'"""
         res = DBManager.fetch_data(q)
+        
         if res:
+            # We track indices separately for Press and Oven for correct zebra striping
+            p_idx, o_idx = 0, 0
+            
             for r in res:
                 press, mould, size, plan_min, is_oven, elapsed_sec = r
                 plan_min = int(plan_min) if plan_min else 45
                 elapsed_min = int(elapsed_sec / 60)
                 remaining = plan_min - elapsed_min
                 
+                # Logic for Red Alert (Overdue)
                 if remaining < 0:
-                    status_txt = f"⚠️ OVERDUE ({remaining} min)"
-                    row_tag = "overdue"
+                    status_txt = f"⚠️ OVERDUE ({abs(remaining)} min)"
+                    row_tag = ('overdue',)
                 else:
                     status_txt = f"{remaining} min"
-                    row_tag = "normal"
+                    # Apply Zebra Striping (Even/Odd)
+                    current_idx = o_idx if is_oven else p_idx
+                    row_tag = ('even',) if current_idx % 2 == 0 else ('odd',)
 
-                if is_oven: self.tree_oven.insert("", "end", values=(press, mould, size, status_txt), tags=(row_tag,))
-                else: self.tree_press.insert("", "end", values=(press, mould, size, status_txt), tags=(row_tag,))
+                if is_oven:
+                    self.tree_oven.insert("", "end", values=(press, mould, size, status_txt), tags=row_tag)
+                    o_idx += 1
+                else:
+                    self.tree_press.insert("", "end", values=(press, mould, size, status_txt), tags=row_tag)
+                    p_idx += 1
 
     # ================= FIXED SERIAL GENERATOR =================
     def generate_next_serial(self):
@@ -637,7 +662,7 @@ class CuringApp:
         # Only updates QC fields and sets status to DONE.
         q = """UPDATE pc2_curing SET status='DONE', qc_time=NOW(), final_cured_weight=%s, flash_waste=%s, visual_qc_status=%s, visual_qc_remarks=%s WHERE serial_no=%s OR b_id=%s"""
         if DBManager.execute_query(q, (wt, flash_val, status, self.var_qc_remarks.get(), sid, sid)):
-            messagebox.showinfo("Success", "QC Saved!"); self.var_cid.set(""); self.var_final_wt.set(""); self.load_active_cures()
+            messagebox.showinfo("Success", "QC Saved!", parent=self.root); self.var_cid.set(""); self.var_final_wt.set(""); self.load_active_cures()
 
     # --- TAB 3: REPORTS ---
     def build_tab3(self):

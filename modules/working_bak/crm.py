@@ -44,6 +44,8 @@ class CRMApp:
         self.o_price = tk.StringVar()
         self.o_date = tk.StringVar(value=(datetime.datetime.now() + datetime.timedelta(days=30)).strftime("%Y-%m-%d"))
         self.o_priority = tk.StringVar(value="3") # 1=Critical, 5=Low
+        self.var_tyre_type = tk.StringVar(value="Standard Black")
+        self.var_pattern = tk.StringVar(value="Traction")
         
         self.customer_map = {} # Maps name -> (id, currency)
         self.exchange_rates = {'INR': 1.0}
@@ -238,9 +240,9 @@ class CRMApp:
             price_for = float(self.o_price.get())
             pri = int(self.o_priority.get())
         except ValueError:
-            return messagebox.showerror("Error", "Qty, Price, and Priority must be numbers.", parent=self.root)
+            return messagebox.showerror("Error", "Qty, Price, and Priority must be numbers.",parent=self.root)
             
-        if not all([pi, cust, size, brand, deadline]): return messagebox.showerror("Error", "Missing required fields.", parent=self.root)
+        if not all([pi, cust, size, brand, deadline]): return messagebox.showerror("Error", "Missing required fields.",parent=self.root)
 
         # Logic: Determine Currency and INR Value
         curr = "INR"
@@ -256,7 +258,7 @@ class CRMApp:
                
         if DBManager.execute_query(q, (pi, cust, size, core, brand, qual, qty, pri, deadline, price_for, curr, price_inr)):
             self.refresh_orders()
-            messagebox.showinfo("Success", f"Order Added!\nTotal Value: ₹{price_inr * qty:,.2f}", parent=self.root)
+            messagebox.showinfo("Success", f"Order Added!\nTotal Value: ₹{price_inr * qty:,.2f}",parent=self.root)
 
     def refresh_orders(self):
         for i in self.tree_ord.get_children(): self.tree_ord.delete(i)
@@ -295,7 +297,7 @@ class CRMApp:
             if DBManager.execute_query(q, (r.get('PI_NUMBER'), cust, r.get('SIZE'), r.get('CORE'), r.get('BRAND'), r.get('GRADE'), qty, pri, r.get('DEADLINE'), price_for, curr, price_inr)):
                 count += 1
         self.refresh_orders(); self.refresh_dashboard()
-        messagebox.showinfo("Success", f"Uploaded {count} Orders", parent=self.root)
+        messagebox.showinfo("Success", f"Uploaded {count} Orders",parent=self.root)
 
     def download_sample_orders(self):
         self._save_csv("Sample_Orders_CRM.csv", 
@@ -332,7 +334,7 @@ class CRMApp:
         cid = self.c_id.get().strip().upper()
         cname = self.c_name.get().strip().upper()
         
-        if not cid or not cname: return messagebox.showerror("Error", "ID and Name required.", parent=self.root)
+        if not cid or not cname: return messagebox.showerror("Error", "ID and Name required.",parent=self.root)
         
         q = """INSERT INTO customer_master (customer_id, customer_name, region, market_type, default_currency) 
                VALUES (%s, %s, %s, %s, %s) 
@@ -371,12 +373,12 @@ class CRMApp:
 
     def update_currency(self):
         try: rate = float(self.cur_rate_usd.get())
-        except: return messagebox.showerror("Error", "Invalid Rate", parent=self.root)
+        except: return messagebox.showerror("Error", "Invalid Rate")
         
         q = "UPDATE currency_rates SET rate_to_inr=%s, last_updated=NOW() WHERE currency_code='USD'"
         if DBManager.execute_query(q, (rate,)):
             self.load_currency()
-            messagebox.showinfo("Success", "Rate Updated! Future orders will use this rate.", parent=self.root)
+            messagebox.showinfo("Success", "Rate Updated! Future orders will use this rate.",parent=self.root)
 
     def load_currency(self):
         for i in self.tree_curr.get_children(): self.tree_curr.delete(i)
@@ -417,7 +419,7 @@ class CRMApp:
                 reader = csv.DictReader(f)
                 reader.fieldnames = [str(n).strip().upper() for n in reader.fieldnames]
                 for row in reader: data.append(row)
-        except Exception as e: messagebox.showerror("Error", f"CSV Error: {e}", parent=self.root); return None
+        except Exception as e: messagebox.showerror("Error", f"CSV Error: {e}",parent=self.root); return None
         return data
 
     def _save_csv(self, fname, header, rows):
@@ -425,7 +427,7 @@ class CRMApp:
         if path:
             with open(path, 'w', newline='') as f:
                 w = csv.writer(f); w.writerow(header); w.writerows(rows)
-            messagebox.showinfo("Success", "File Saved", parent=self.root)
+            messagebox.showinfo("Success", "File Saved",parent=self.root)
 
 if __name__ == "__main__":
     root = tk.Tk(); app = CRMApp(root); root.mainloop()

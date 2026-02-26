@@ -24,8 +24,6 @@ class FinalQCApp:
         self.root = root
         self.root.title(f"PC3 | Final Quality Control (User: {current_user})")
         self.root.geometry("1300x850")
-        self.root.configure(bg=C_BG)
-        self.current_user = current_user
         
         # --- VARIABLES ---
         self.var_scan = tk.StringVar()
@@ -77,15 +75,63 @@ class FinalQCApp:
         header.pack(fill="x")
         tk.Label(header, text="🛡️ PC3 - DIGITAL PASSPORT & QC", font=("Segoe UI", 20, "bold"), bg=C_HEADER, fg="white").pack(pady=15)
 
-        nb = ttk.Notebook(self.root)
-        nb.pack(fill="both", expand=True, padx=15, pady=15)
-        self.tab_qc = tk.Frame(nb, bg=C_BG); nb.add(self.tab_qc, text="  🔍 INSPECTION  ")
-        self.tab_hist = tk.Frame(nb, bg=C_BG); nb.add(self.tab_hist, text="  📜 TYRE DETAILS (HISTORY)  ")
-        self.tab_report = tk.Frame(nb, bg=C_BG); nb.add(self.tab_report, text="  📊 QC REPORT  ") # <--- 1. ADD NEW TAB
+        # MAIN TABS
+        self.nb = ttk.Notebook(self.root)
+        self.nb.pack(fill="both", expand=True, padx=15, pady=15)
         
+        self.tab_qc = tk.Frame(self.nb, bg=C_BG)
+        self.nb.add(self.tab_qc, text="  🔍 INSPECTION  ")
+        
+        self.tab_hist = tk.Frame(self.nb, bg=C_BG)
+        self.nb.add(self.tab_hist, text="  📜 TYRE DETAILS (HISTORY)  ")
+        
+        self.tab_report = tk.Frame(self.nb, bg=C_BG)
+        self.nb.add(self.tab_report, text="  📊 QC REPORT  ") 
+        
+        self.tab_tracker = tk.Frame(self.nb, bg=C_BG)
+        self.nb.add(self.tab_tracker, text="  ⏳ PENDING TRACKER  ") # <--- NEW TAB ADDED HERE
+        
+        # Build contents for each tab
         self.build_qc_tab()
         self.build_history_tab()
-        self.build_report_tab() # <--- 2. CALL NEW BUILD METHOD
+        self.build_report_tab() 
+        self.build_tracker_tab() # <--- NEW BUILD FUNCTION CALLED HERE
+
+    def build_tracker_tab(self):
+        # Header for Tracker
+        tk.Label(self.tab_tracker, text="⏳ Work In Progress (Finished PC2, Waiting for PC3)", font=("Segoe UI", 14, "bold"), bg=C_BG, fg=C_HEADER).pack(pady=10)
+
+        # Inner Notebook for Detailed vs Summary views
+        self.tracker_notebook = ttk.Notebook(self.tab_tracker)
+        self.tracker_notebook.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # --- SUB-TAB A: Detailed Master List ---
+        self.tab_detailed = tk.Frame(self.tracker_notebook, bg="white")
+        self.tracker_notebook.add(self.tab_detailed, text="📋 Pending Master List")
+        
+        cols_det = ("Serial No", "Size", "Type", "Pattern", "Brand", "Cured Time")
+        self.tree_detailed = ttk.Treeview(self.tab_detailed, columns=cols_det, show="headings", height=15)
+        for col in cols_det:
+            self.tree_detailed.heading(col, text=col)
+            self.tree_detailed.column(col, anchor="center")
+        self.tree_detailed.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # --- SUB-TAB B: Aggregated Summary ---
+        self.tab_summary = tk.Frame(self.tracker_notebook, bg="white")
+        self.tracker_notebook.add(self.tab_summary, text="📈 Brand & Size Summary")
+        
+        cols_sum = ("Size", "Brand", "Quality Grade", "Type", "Total Pending")
+        self.tree_summary = ttk.Treeview(self.tab_summary, columns=cols_sum, show="headings", height=15)
+        for col in cols_sum:
+            self.tree_summary.heading(col, text=col)
+            self.tree_summary.column(col, anchor="center")
+        self.tree_summary.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # Refresh Button
+        tk.Button(self.tab_tracker, text="🔄 Refresh Pending Data", command=self.load_tracker_data, bg=C_ID_FG, fg="white", font=("Segoe UI", 11, "bold")).pack(pady=10)
+
+        # Load data initially
+        self.load_tracker_data()
 
     def build_qc_tab(self):
         # --- SCANNER BAR ---
@@ -168,7 +214,7 @@ class FinalQCApp:
         btn_html = tk.Button(f, text="📄 GENERATE HISTORY CARD (HTML)", command=self.generate_html_card, bg="#8E44AD", fg="white", font=("Segoe UI", 11, "bold"), pady=5)
         btn_html.pack(anchor="ne", pady=(0,10))
         
-        # Styled Text Area (Looks like a Card now)
+        # Styled Text Area
         self.txt_history = tk.Text(f, font=("Segoe UI", 11), bg="white", padx=30, pady=20, relief="flat", bd=0, highlightthickness=1, highlightbackground="#BDC3C7")
         self.txt_history.pack(fill="both", expand=True)
         
@@ -177,10 +223,66 @@ class FinalQCApp:
         self.txt_history.tag_configure("header", font=("Segoe UI", 12, "bold"), foreground="#2980B9", spacing1=15, spacing3=5)
         self.txt_history.tag_configure("label", font=("Segoe UI", 10, "bold"), foreground="#7F8C8D")
         self.txt_history.tag_configure("val", font=("Segoe UI", 11, "bold"), foreground="#2C3E50")
-        self.txt_history.tag_configure("good", font=("Segoe UI", 11, "bold"), foreground="#27AE60") # Green
-        self.txt_history.tag_configure("warn", font=("Segoe UI", 11, "bold"), foreground="#E67E22") # Orange
-        self.txt_history.tag_configure("bad", font=("Segoe UI", 11, "bold"), foreground="#E74C3C")  # Red
+        self.txt_history.tag_configure("good", font=("Segoe UI", 11, "bold"), foreground="#27AE60") 
+        self.txt_history.tag_configure("warn", font=("Segoe UI", 11, "bold"), foreground="#E67E22") 
+        self.txt_history.tag_configure("bad", font=("Segoe UI", 11, "bold"), foreground="#E74C3C")  
         self.txt_history.tag_configure("divider", foreground="#ECF0F1", justify="center", spacing1=10, spacing3=10)
+
+    def build_report_tab(self):
+        tk.Label(self.tab_report, text="📊 Station QC & Production Report", font=("Segoe UI", 14, "bold"), bg=C_BG, fg=C_HEADER).pack(pady=10)
+
+        # --- Filter Frame ---
+        f_filter = tk.Frame(self.tab_report, bg=C_CARD, pady=10, padx=10, relief="solid", bd=1)
+        f_filter.pack(fill="x", padx=15, pady=5)
+
+        tk.Label(f_filter, text="Start Date:", bg=C_CARD, font=("Segoe UI", 9, "bold")).pack(side="left", padx=5)
+        self.qc_start_date = tk.Entry(f_filter, width=12, font=("Segoe UI", 10))
+        self.qc_start_date.insert(0, datetime.datetime.now().strftime("%Y-%m-%d"))
+        self.qc_start_date.pack(side="left", padx=5)
+
+        tk.Label(f_filter, text="End Date:", bg=C_CARD, font=("Segoe UI", 9, "bold")).pack(side="left", padx=5)
+        self.qc_end_date = tk.Entry(f_filter, width=12, font=("Segoe UI", 10))
+        self.qc_end_date.insert(0, datetime.datetime.now().strftime("%Y-%m-%d"))
+        self.qc_end_date.pack(side="left", padx=5)
+
+        tk.Button(f_filter, text="🔍 GENERATE REPORT", command=self.generate_qc_report, bg=C_ID_FG, fg="white", font=("Segoe UI", 9, "bold")).pack(side="left", padx=15)
+        tk.Button(f_filter, text="📄 EXPORT CSV", command=self.export_qc_csv, bg=C_WT_FG, fg="white", font=("Segoe UI", 9, "bold")).pack(side="left", padx=5)
+
+        # --- KPI Summary Counters ---
+        self.f_qc_kpi = tk.Frame(self.tab_report, bg=C_BG)
+        self.f_qc_kpi.pack(fill="x", padx=15, pady=5)
+
+        self.lbl_qc_total = tk.Label(self.f_qc_kpi, text="Total: 0", font=("Segoe UI", 11, "bold"), fg=C_HEADER, bg=C_CARD, padx=10, pady=5)
+        self.lbl_qc_total.pack(side="left", padx=5)
+
+        self.lbl_qc_a = tk.Label(self.f_qc_kpi, text="A-Grade: 0", font=("Segoe UI", 11, "bold"), fg=C_WT_FG, bg=C_CARD, padx=10, pady=5)
+        self.lbl_qc_a.pack(side="left", padx=5)
+
+        self.lbl_qc_b = tk.Label(self.f_qc_kpi, text="B-Grade: 0", font=("Segoe UI", 11, "bold"), fg=C_STAT_FG, bg=C_CARD, padx=10, pady=5)
+        self.lbl_qc_b.pack(side="left", padx=5)
+
+        self.lbl_qc_scrap = tk.Label(self.f_qc_kpi, text="Scrap: 0", font=("Segoe UI", 11, "bold"), fg=C_ERR, bg=C_CARD, padx=10, pady=5)
+        self.lbl_qc_scrap.pack(side="left", padx=5)
+
+        # --- Data Grid (Treeview) ---
+        cols = ("Date & Time", "Serial No", "Size", "Grade", "Defects", "Inspector")
+        self.tree_qc_rep = ttk.Treeview(self.tab_report, columns=cols, show="headings", height=15)
+        for c in cols: self.tree_qc_rep.heading(c, text=c)
+
+        self.tree_qc_rep.column("Date & Time", width=140, anchor="center")
+        self.tree_qc_rep.column("Serial No", width=130, anchor="center")
+        self.tree_qc_rep.column("Size", width=120, anchor="center")
+        self.tree_qc_rep.column("Grade", width=90, anchor="center")
+        self.tree_qc_rep.column("Defects", width=180)
+        self.tree_qc_rep.column("Inspector", width=100, anchor="center")
+        self.tree_qc_rep.pack(fill="both", expand=True, padx=15, pady=10)
+        
+        # --- REPRINT BUTTONS FRAME ---
+        btn_f = tk.Frame(self.tab_report, bg=C_BG)
+        btn_f.pack(fill="x", padx=15, pady=5)
+        
+        tk.Button(btn_f, text="🖨️ REPRINT SELECTED", command=self.reprint_selected, bg=C_STAT_FG, fg="white", font=("Segoe UI", 10, "bold"), padx=10).pack(side="left", padx=5)
+        tk.Button(btn_f, text="⏪ REPRINT LAST", command=self.reprint_last, bg=C_HEADER, fg="white", font=("Segoe UI", 10, "bold"), padx=10).pack(side="right", padx=5)
 
     # --- LOGIC ---
     def lookup_tyre(self, event):
@@ -192,8 +294,6 @@ class FinalQCApp:
         qc_status_msg = f"⚠️ ALREADY QC: {res_qc[0][0]}" if res_qc else "✅ READY FOR QC"
         self.info_status_msg.set(qc_status_msg)
 
-        # MAIN QUERY: Fetches Core Size from Plan if Building is empty!
-        # ADDED: is_pob, defect_codes
         q = """
             SELECT 
                 b.b_id, b.tyre_size, 
@@ -221,7 +321,7 @@ class FinalQCApp:
             self.ui_core.set(r[2] if r[2] else "—") 
             self.ui_brand.set(r[3])
             self.ui_quality.set(r[4])
-            self.ui_mould.set(r[15]) # Curing Mould
+            self.ui_mould.set(r[15]) 
             
             # Age
             age_str = "0h"
@@ -240,20 +340,17 @@ class FinalQCApp:
             self.reset_ui()
 
     def update_history_text(self, r):
-        self.txt_history.config(state=tk.NORMAL) # Unlock text box
+        self.txt_history.config(state=tk.NORMAL) 
         self.txt_history.delete(1.0, tk.END)
-        is_pob = r[13] # Boolean Flag
+        is_pob = r[13] 
         
-        # Helper function to insert Label: Value pairs nicely
         def insert_kv(label, val, tag="val"):
             self.txt_history.insert(tk.END, f"{label:<18}: ", "label")
             self.txt_history.insert(tk.END, f"{val}\n", tag)
 
-        # Title
         self.txt_history.insert(tk.END, f"TYRE DIGITAL PASSPORT: {r[14]}\n", "title")
         self.txt_history.insert(tk.END, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n", "divider")
 
-        # --- 1. BUILDING ---
         self.txt_history.insert(tk.END, "1. BUILDING GENETICS (PC1)\n", "header")
         insert_kv("Green ID", r[0])
         insert_kv("Size & Core", f"{r[1]} | Core: {r[2]}")
@@ -269,7 +366,6 @@ class FinalQCApp:
         insert_kv("  Mid", r[10] if r[10] else "-")
         if is_pob: insert_kv("  Gum", r[11] if r[11] else "N/A")
 
-        # --- 2. CURING ---
         self.txt_history.insert(tk.END, "2. CURING PROCESS (PC2)\n", "header")
         insert_kv("Serial No", r[14])
         insert_kv("Mould ID", r[15])
@@ -279,9 +375,8 @@ class FinalQCApp:
         insert_kv("Final Wt", f"{r[19]} kg (Flash: {r[20]} kg)")
         insert_kv("Curing Remarks", r[18] if r[18] else "None")
 
-        # --- 3. QC ---
         self.txt_history.insert(tk.END, "3. FINAL QUALITY (PC3)\n", "header")
-        if r[24]: # If Graded
+        if r[24]: 
             grade_tag = "good" if r[24] == "A-GRADE" else ("bad" if r[24] == "SCRAP" else "warn")
             insert_kv("Grade", r[24], grade_tag)
             insert_kv("Inspected On", r[25])
@@ -296,7 +391,6 @@ class FinalQCApp:
         else:
             insert_kv("Status", "PENDING INSPECTION", "warn")
 
-        # --- 4. LOGISTICS ---
         self.txt_history.insert(tk.END, "4. LOGISTICS & DESPATCH\n", "header")
         if len(r) > 33 and r[33]:
             insert_kv("Status", "DISPATCHED", "good")
@@ -306,28 +400,24 @@ class FinalQCApp:
             insert_kv("Status", "IN WAREHOUSE", "warn")
             
         self.txt_history.insert(tk.END, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n", "divider")
-        self.txt_history.config(state=tk.DISABLED) # Lock text box so user can't type in it
+        self.txt_history.config(state=tk.DISABLED)
 
     def generate_html_card(self):
         if not self.current_tyre_data: return messagebox.showerror("Error", "Scan a tyre first!",parent=self.root)
         r = self.current_tyre_data
         is_pob = r[13]
         
-        # Prepare Strings
         hardness_txt = "Not Tested"
         if r[28] or r[30]: hardness_txt = f"Core: {r[28]}-{r[29]} | Tread: {r[30]}-{r[31]}"
         
-        # Gum Row Logic
         gum_html = ""
         if is_pob:
             gum_html = f'<div class="row"><span class="label">Gum Batch:</span><span class="val">{r[11] if r[11] else "-"}</span></div>'
 
-        # Defect Row Logic
         defect_html = ""
         if r[32]:
             defect_html = f'<div class="row" style="background:#FDEDEC"><span class="label" style="color:#C0392B">DEFECTS:</span><span class="val" style="color:#C0392B">{r[32]}</span></div>'
 
-        # Logistics Row Logic
         logistics_html = ""
         if len(r) > 33 and r[33]:
             logistics_html = f'''
@@ -419,32 +509,58 @@ class FinalQCApp:
         remarks = self.var_remarks.get().strip()
         q_ins = """INSERT INTO pc3_quality (tyre_id, grade, defect_codes, inspector_name, qc_remarks, inspected_at, is_finalized, hardness_core_min, hardness_core_max, hardness_tread_min, hardness_tread_max) VALUES (%s, %s, %s, %s, %s, NOW(), TRUE, %s, %s, %s, %s)"""
         
-        # Safe Int conversion
         def g_int(v): return int(v.get()) if v.get().isdigit() else 0
         
         if DBManager.execute_query(q_ins, (serial, grade, defects, self.current_user, remarks, g_int(self.h_core_min), g_int(self.h_core_max), g_int(self.h_tread_min), g_int(self.h_tread_max))):
             DBManager.execute_query("UPDATE pc2_curing SET status='QC_COMPLETED' WHERE serial_no=%s", (serial,))
             
-            # ==========================================
-            # --- THE GOLDEN THREAD: UPDATE MASTER ORDER ---
-            # ==========================================
             if grade == "A-GRADE":
-                # Trace the serial number back to PC1 to find the Order ID
                 q_find_order = """SELECT b.order_id 
                                   FROM pc2_curing c 
                                   JOIN pc1_building b ON c.b_id = b.b_id 
                                   WHERE c.serial_no = %s"""
                 res_order = DBManager.fetch_data(q_find_order, (serial,))
                 
-                # If this tyre is linked to an order, tick the counter up by 1!
                 if res_order and res_order[0][0]: 
                     order_id = res_order[0][0]
                     q_update_master = "UPDATE master_orders SET produced_qty = COALESCE(produced_qty, 0) + 1 WHERE order_id = %s"
                     DBManager.execute_query(q_update_master, (order_id,))
-            # ==========================================
 
             self.print_qc_label(serial, grade, self.ui_size.get(), self.ui_brand.get())
-            messagebox.showinfo("Saved", f"Tyre Graded: {grade}"); self.reset_ui()
+            messagebox.showinfo("Saved", f"Tyre Graded: {grade}", parent=self.root)
+            self.reset_ui()
+            
+            # Refresh the tracker tab seamlessly!
+            self.load_tracker_data()
+
+    def load_tracker_data(self):
+        for row in self.tree_detailed.get_children(): self.tree_detailed.delete(row)
+        for row in self.tree_summary.get_children(): self.tree_summary.delete(row)
+        
+        q_detailed = """
+            SELECT c.serial_no, b.tyre_size, b.tread_type, b.pattern, b.brand, TO_CHAR(c.end_time, 'HH12:MI AM')
+            FROM pc2_curing c
+            JOIN pc1_building b ON c.b_id = b.b_id
+            WHERE c.status != 'QC_COMPLETED' AND c.end_time IS NOT NULL
+            ORDER BY c.end_time ASC
+        """
+        detailed_rows = DBManager.fetch_data(q_detailed)
+        
+        q_summary = """
+            SELECT b.tyre_size, b.brand, b.quality, b.tread_type, COUNT(c.serial_no)
+            FROM pc2_curing c
+            JOIN pc1_building b ON c.b_id = b.b_id
+            WHERE c.status != 'QC_COMPLETED' AND c.end_time IS NOT NULL
+            GROUP BY b.tyre_size, b.brand, b.quality, b.tread_type
+            ORDER BY COUNT(c.serial_no) DESC
+        """
+        summary_rows = DBManager.fetch_data(q_summary)
+        
+        if detailed_rows:
+            for row in detailed_rows: self.tree_detailed.insert("", "end", values=row)
+                
+        if summary_rows:
+            for row in summary_rows: self.tree_summary.insert("", "end", values=row)
 
     # --- Helpers ---
     def update_defect_list(self):
@@ -469,8 +585,6 @@ class FinalQCApp:
     def print_qc_label(self, serial, grade, size, brand):
         try:
             if platform.system() == "Linux":
-                # A20,10: Text at X=20, Y=10. Font 3. Combines Size, Brand, and Grade.
-                # B20,45: Barcode moved up to Y=45. Height increased to 100 for easier scanning.
                 epl = f'N\nq464\nQ200,24\nA20,10,0,3,1,1,N,"{size} {brand} | QC: {grade}"\nB20,45,0,1,2,5,100,B,"{serial}"\nP1\n'
                 with open(LINUX_PRINTER_PATH, "wb") as f: 
                     f.write(epl.encode())
@@ -479,77 +593,16 @@ class FinalQCApp:
 
     def create_card(self, parent, title): 
         f = tk.Frame(parent, bg=C_CARD, bd=1, relief="solid", padx=10, pady=10);
-        
-        # Changed C_PRIMARY to #2C3E50 so it doesn't crash!
         tk.Label(f, text=title, font=("Segoe UI", 10, "bold"), bg=C_CARD, fg="#2C3E50").pack(anchor="w", pady=5); return f
 
     def create_kv(self, parent, label, var, color="#2C3E50"): 
         f = tk.Frame(parent, bg="white"); f.pack(fill="x")
         tk.Label(f, text=label, width=15, anchor="w", bg="white", fg="#7F8C8D").pack(side="left")
         tk.Label(f, textvariable=var, anchor="w", bg="white", font=("Segoe UI", 10, "bold"), fg=color).pack(side="left")
-    # ==========================================
-    # --- 📊 QC REPORT TAB (PC3 LOCAL) ---
-    # ==========================================
-    def build_report_tab(self):
-        tk.Label(self.tab_report, text="📊 Station QC & Production Report", font=("Segoe UI", 14, "bold"), bg=C_BG, fg=C_HEADER).pack(pady=10)
-
-        # --- Filter Frame ---
-        f_filter = tk.Frame(self.tab_report, bg=C_CARD, pady=10, padx=10, relief="solid", bd=1)
-        f_filter.pack(fill="x", padx=15, pady=5)
-
-        tk.Label(f_filter, text="Start Date:", bg=C_CARD, font=("Segoe UI", 9, "bold")).pack(side="left", padx=5)
-        self.qc_start_date = tk.Entry(f_filter, width=12, font=("Segoe UI", 10))
-        self.qc_start_date.insert(0, datetime.datetime.now().strftime("%Y-%m-%d"))
-        self.qc_start_date.pack(side="left", padx=5)
-
-        tk.Label(f_filter, text="End Date:", bg=C_CARD, font=("Segoe UI", 9, "bold")).pack(side="left", padx=5)
-        self.qc_end_date = tk.Entry(f_filter, width=12, font=("Segoe UI", 10))
-        self.qc_end_date.insert(0, datetime.datetime.now().strftime("%Y-%m-%d"))
-        self.qc_end_date.pack(side="left", padx=5)
-
-        tk.Button(f_filter, text="🔍 GENERATE REPORT", command=self.generate_qc_report, bg=C_ID_FG, fg="white", font=("Segoe UI", 9, "bold")).pack(side="left", padx=15)
-        tk.Button(f_filter, text="📄 EXPORT CSV", command=self.export_qc_csv, bg=C_WT_FG, fg="white", font=("Segoe UI", 9, "bold")).pack(side="left", padx=5)
-
-        # --- KPI Summary Counters ---
-        self.f_qc_kpi = tk.Frame(self.tab_report, bg=C_BG)
-        self.f_qc_kpi.pack(fill="x", padx=15, pady=5)
-
-        self.lbl_qc_total = tk.Label(self.f_qc_kpi, text="Total: 0", font=("Segoe UI", 11, "bold"), fg=C_HEADER, bg=C_CARD, padx=10, pady=5)
-        self.lbl_qc_total.pack(side="left", padx=5)
-
-        self.lbl_qc_a = tk.Label(self.f_qc_kpi, text="A-Grade: 0", font=("Segoe UI", 11, "bold"), fg=C_WT_FG, bg=C_CARD, padx=10, pady=5)
-        self.lbl_qc_a.pack(side="left", padx=5)
-
-        self.lbl_qc_b = tk.Label(self.f_qc_kpi, text="B-Grade: 0", font=("Segoe UI", 11, "bold"), fg=C_STAT_FG, bg=C_CARD, padx=10, pady=5)
-        self.lbl_qc_b.pack(side="left", padx=5)
-
-        self.lbl_qc_scrap = tk.Label(self.f_qc_kpi, text="Scrap: 0", font=("Segoe UI", 11, "bold"), fg=C_ERR, bg=C_CARD, padx=10, pady=5)
-        self.lbl_qc_scrap.pack(side="left", padx=5)
-
-        # --- Data Grid (Treeview) ---
-        cols = ("Date & Time", "Serial No", "Size", "Grade", "Defects", "Inspector")
-        self.tree_qc_rep = ttk.Treeview(self.tab_report, columns=cols, show="headings", height=15)
-        for c in cols: self.tree_qc_rep.heading(c, text=c)
-
-        self.tree_qc_rep.column("Date & Time", width=140, anchor="center")
-        self.tree_qc_rep.column("Serial No", width=130, anchor="center")
-        self.tree_qc_rep.column("Size", width=120, anchor="center")
-        self.tree_qc_rep.column("Grade", width=90, anchor="center")
-        self.tree_qc_rep.column("Defects", width=180)
-        self.tree_qc_rep.column("Inspector", width=100, anchor="center")
-        self.tree_qc_rep.pack(fill="both", expand=True, padx=15, pady=10)
-        
-        # --- REPRINT BUTTONS FRAME ---
-        btn_f = tk.Frame(self.tab_report, bg=C_BG)
-        btn_f.pack(fill="x", padx=15, pady=5)
-        
-        tk.Button(btn_f, text="🖨️ REPRINT SELECTED", command=self.reprint_selected, bg=C_STAT_FG, fg="white", font=("Segoe UI", 10, "bold"), padx=10).pack(side="left", padx=5)
-        tk.Button(btn_f, text="⏪ REPRINT LAST", command=self.reprint_last, bg=C_HEADER, fg="white", font=("Segoe UI", 10, "bold"), padx=10).pack(side="right", padx=5)
 
     def generate_qc_report(self):
         start = self.qc_start_date.get().strip()
         end = self.qc_end_date.get().strip()
-
         for i in self.tree_qc_rep.get_children(): self.tree_qc_rep.delete(i)
 
         q = """
@@ -563,7 +616,6 @@ class FinalQCApp:
         res = DBManager.fetch_data(q, (start, end))
 
         t_tot = 0; t_a = 0; t_b = 0; t_scrap = 0
-
         if res:
             for r in res:
                 self.tree_qc_rep.insert("", "end", values=r)
@@ -582,7 +634,6 @@ class FinalQCApp:
         end = self.qc_end_date.get().strip()
         path = filedialog.asksaveasfilename(defaultextension=".csv", initialfile=f"Station_QC_Report_{start}_to_{end}.csv")
         if not path: return
-
         try:
             with open(path, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
@@ -597,20 +648,14 @@ class FinalQCApp:
             
     def reprint_selected(self):
         sel = self.tree_qc_rep.selection()
-        if not sel:
-            return messagebox.showwarning("Warning", "Please select a tyre from the list to reprint.",parent=self.root)
-        
-        # Grab the Serial No from the selected row (Index 1)
+        if not sel: return messagebox.showwarning("Warning", "Please select a tyre from the list to reprint.",parent=self.root)
         serial = self.tree_qc_rep.item(sel[0])['values'][1] 
-        
-        # Look up the exact details needed for the label
         q = """SELECT c.serial_no, q.grade, b.tyre_size, b.brand 
                FROM pc3_quality q
                JOIN pc2_curing c ON q.tyre_id = c.serial_no
                JOIN pc1_building b ON c.b_id = b.b_id
                WHERE q.tyre_id = %s"""
         res = DBManager.fetch_data(q, (serial,))
-        
         if res:
             self.print_qc_label(res[0][0], res[0][1], res[0][2], res[0][3])
             messagebox.showinfo("Success", f"Reprinted label for {serial}",parent=self.root)
@@ -618,20 +663,17 @@ class FinalQCApp:
             messagebox.showerror("Error", "Could not fetch tyre details for reprinting.",parent=self.root)
 
     def reprint_last(self):
-        # Grabs the absolute latest tyre that was QC'd
         q = """SELECT c.serial_no, q.grade, b.tyre_size, b.brand 
                FROM pc3_quality q
                JOIN pc2_curing c ON q.tyre_id = c.serial_no
                JOIN pc1_building b ON c.b_id = b.b_id
                ORDER BY q.inspected_at DESC LIMIT 1"""
         res = DBManager.fetch_data(q)
-        
         if res:
             self.print_qc_label(res[0][0], res[0][1], res[0][2], res[0][3])
             messagebox.showinfo("Success", f"Reprinted label for {res[0][0]}",parent=self.root)
         else:
             messagebox.showinfo("Info", "No QC records found to reprint.",parent=self.root)        
-            
             
 if __name__ == "__main__":
     root = tk.Tk(); app = FinalQCApp(root); root.mainloop()

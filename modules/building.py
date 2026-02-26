@@ -8,7 +8,7 @@ import math
 from db_manager import DBManager
 
 # ================= CONFIGURATION =================
-LINUX_PRINTER_PATH = "/dev/usb/lp0" 
+LINUX_PRINTER_PATH = "/dev/usb/lp4" 
 C_BG = "#F4F6F7"       
 C_CARD = "#FFFFFF"     
 C_PRIMARY = "#2C3E50"  
@@ -77,6 +77,8 @@ class PC1SmartApp:
 
         self.setup_ui()
         self.root.after(500, self.connect_and_load)
+
+        self.var_weight.trace_add("write", self.check_completion_status)
 
     def get_current_shift(self):
         h = datetime.datetime.now().hour
@@ -157,16 +159,28 @@ class PC1SmartApp:
         self.combo_tt = ttk.Combobox(card_mat, textvariable=self.sel_tread_type, values=["VT001", "VT002", "VT003", "NMW"]); self.combo_tt.pack(fill="x"); self.combo_tt.bind("<<ComboboxSelected>>", self.on_tread_type_change); self.create_multi_select(card_mat, "Tread Batch(es):", self.sel_tread, "list_tread")
         
         self.frame_gum = tk.Frame(card_mat, bg=C_CARD, pady=5); self.frame_gum.pack(fill="x", pady=5); tk.Label(self.frame_gum, text="Bonding Gum (POB):", fg=C_POB, bg=C_CARD).pack(anchor="w"); self.combo_gum_widget = ttk.Combobox(self.frame_gum, textvariable=self.sel_gum); self.combo_gum_widget.pack(fill="x"); self.frame_gum.pack_forget() 
+        
         # MS Rim Input Frame (Hidden by default)
         self.frame_ms_rim = tk.Frame(card_mat, bg=C_CARD, pady=5)
         self.frame_ms_rim.pack(fill="x", pady=5)
         tk.Label(self.frame_ms_rim, text="MS Rim Weight (Kg):", fg=C_POB, bg=C_CARD).pack(anchor="w")
         tk.Entry(self.frame_ms_rim, textvariable=self.var_ms_rim_wt, font=("Segoe UI", 12), bg="#F5EEF8").pack(fill="x")
         self.frame_ms_rim.pack_forget()
+        
         self.add_label(card_mat, "Green Weight (Kg):"); tk.Entry(card_mat, textvariable=self.var_weight, font=("Segoe UI", 12), bg="#EBF5FB").pack(fill="x")
         self.add_label(card_mat, "Building Remarks / Notes:")
         tk.Entry(card_mat, textvariable=self.var_remarks, font=("Segoe UI", 11), bg="#FCF3CF").pack(fill="x", pady=(0, 10))
-        f_btn = tk.Frame(right, bg=C_BG); f_btn.pack(fill="x", pady=20); tk.Button(f_btn, text="⚠️ SAVE PARTIAL", command=lambda: self.submit_build("PARTIAL"), bg=C_PARTIAL, fg="white", width=15).pack(side="left", padx=5); tk.Button(f_btn, text="✅ SAVE COMPLETE", command=lambda: self.submit_build("COMPLETED"), bg=C_SUCCESS, fg="white", width=20).pack(side="right", padx=5)
+        
+        f_btn = tk.Frame(right, bg=C_BG); f_btn.pack(fill="x", pady=20)
+        
+        # Save Partial remains active
+        tk.Button(f_btn, text="⚠️ SAVE PARTIAL", command=lambda: self.submit_build("PARTIAL"), 
+                  bg=C_PARTIAL, fg="white", width=15).pack(side="left", padx=5)
+        
+        # SAVE COMPLETE starts disabled and greyed out
+        self.btn_save_complete = tk.Button(f_btn, text="✅ SAVE COMPLETE", command=lambda: self.submit_build("COMPLETED"), 
+                                           bg="#BDC3C7", fg="white", width=20, state="disabled")
+        self.btn_save_complete.pack(side="right", padx=5)
 
     def build_tab2(self):
         card = self.create_card(self.tab2, "APPLY TREAD TO PARTIAL TYRE"); card.pack(fill="both", expand=True, padx=100, pady=50)
@@ -502,54 +516,67 @@ class PC1SmartApp:
     def submit_build(self, mode):
         # 1. Setup Checks
         if self.var_size.get() == "—" or not self.var_operator.get(): 
-            return messagebox.showerror("Error", "Missing Setup",parent=self.root)
+            return messagebox.showerror("Error", "Missing Setup", parent=self.root)
         
-        # 2. Get Weights & Validate
+        # --- NEW MANDATORY GATEKEEPER VALIDATION ---
+        # Check if mandatory 'Completion' criteria are met
+        tread_batches = self.get_list_values("list_tread")
         wt_val = self.var_weight.get().strip()
-        final_wt = None
         
-        # Get MS Rim Weight safely
+        # If trying to save as COMPLETED, verify tread and weight exist
+        if mode == "COMPLETED":
+            missing_items = []
+            if not tread_batches: missing_items.append("Tread Batch")
+            if not wt_val: missing_items.append("Green Weight")
+            
+            if missing_items:
+                msg = f"⚠️ CANNOT COMPLETE: Missing {', '.join(missing_items)}.\n\nWould you like to save this as a 'PARTIAL' build instead?"
+                if messagebox.askyesno("Incomplete Data", msg, parent=self.root):
+                    mode = "PARTIAL"
+                else:
+                    return # Exit if they don't want to save as partial
+        # -------------------------------------------
+
+        # 2. Get Weights & Validate
+        final_wt = None
         ms_wt = 0.0
         if self.current_is_pob and self.var_ms_rim_wt.get().strip():
-            try: ms_wt = float(self.var_ms_rim_wt.get().strip())
-            except ValueError: return messagebox.showerror("Error", "Invalid MS Rim Weight Format",parent=self.root)
+            try: 
+                ms_wt = float(self.var_ms_rim_wt.get().strip())
+            except ValueError: 
+                return messagebox.showerror("Error", "Invalid MS Rim Weight Format", parent=self.root)
 
         if wt_val:
             try:
                 final_wt = float(wt_val)
-                target_combined = self.target_weight + ms_wt # Rubber Plan + Steel Rim
+                target_combined = self.target_weight + ms_wt
 
-                # --- VALIDATION START (15% Tolerance) ---
+                # 15% Tolerance Check
                 if target_combined > 0:
                     tolerance = 0.15 
                     min_w = target_combined * (1 - tolerance)
                     max_w = target_combined * (1 + tolerance)
                     
                     if final_wt < min_w or final_wt > max_w:
-                        msg = f"⚠️ WEIGHT WARNING!\n\nTarget Rubber: {self.target_weight} kg\nMS Rim: {ms_wt} kg\nTotal Expected: {target_combined} kg\n\nEntered: {final_wt} kg\n\nOutside 15% Tolerance. Proceed?"
-                        if not messagebox.askyesno("Weight Check", msg,parent=self.root):
+                        msg = f"⚠️ WEIGHT WARNING!\n\nTarget Expected: {target_combined} kg\nEntered: {final_wt} kg\n\nOutside 15% Tolerance. Proceed?"
+                        if not messagebox.askyesno("Weight Check", msg, parent=self.root):
                             return
-                # --- VALIDATION END ---
             except ValueError:
-                return messagebox.showerror("Error", "Invalid Weight Format",parent=self.root)
+                return messagebox.showerror("Error", "Invalid Weight Format", parent=self.root)
 
         # 3. Save to DB
         bid = self.get_next_bid()
         
-        # ADDED: order_id column and an extra %s at the end
         q = """INSERT INTO pc1_building (b_id, press_id, daylight, tyre_size, brand, pattern, quality, mould_id_marks, batch_core, batch_mid, batch_gum, is_pob, batch_tread, tread_type, operator_id, shift, status, green_tyre_weight, ms_rim_weight, building_remarks, birth_time, order_id) 
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
         
-        # ADDED: self.current_order_id at the very end of the tuple
-        d = (bid, self.var_press.get(), self.var_daylight.get(), self.var_size.get(), self.var_brand.get(), self.var_pattern.get(), self.var_quality.get(), self.var_mould.get(), self.get_list_values("list_core"), self.get_list_values("list_mid"), self.sel_gum.get(), self.current_is_pob, self.get_list_values("list_tread"), self.sel_tread_type.get(), self.var_operator.get(), self.var_shift.get(), mode, final_wt, ms_wt, self.var_remarks.get().strip(), datetime.datetime.now() if mode=="COMPLETED" else None, self.current_order_id)
+        # d tuple uses the validated 'mode' (might have been changed to PARTIAL)
+        d = (bid, self.var_press.get(), self.var_daylight.get(), self.var_size.get(), self.var_brand.get(), self.var_pattern.get(), self.var_quality.get(), self.var_mould.get(), self.get_list_values("list_core"), self.get_list_values("list_mid"), self.sel_gum.get(), self.current_is_pob, tread_batches, self.sel_tread_type.get(), self.var_operator.get(), self.var_shift.get(), mode, final_wt, ms_wt, self.var_remarks.get().strip(), datetime.datetime.now() if mode=="COMPLETED" else None, self.current_order_id)
         
         if DBManager.execute_query(q, d):
-        
-            self.print_label(bid, self.var_size.get(), self.var_press.get(), self.var_daylight.get()); self.refresh_today_list(); messagebox.showinfo("Saved", bid,parent=self.root)
-            
-            # --- Update Balance ---
-            # Ideally we re-fetch, but simple reset for now forces operator to re-select or we keep plan loaded.
-            # Standard logic is to reset form. If operator wants to build same again, they select press/DL again.
+            self.print_label(bid, self.var_size.get(), self.var_press.get(), self.var_daylight.get())
+            self.refresh_today_list()
+            messagebox.showinfo("Saved", f"B-ID: {bid}\nStatus: {mode}", parent=self.root)
             self.reset_form()
 
     # ================= MODIFIED: UPDATE VALIDATION LOGIC =================
@@ -637,6 +664,26 @@ class PC1SmartApp:
         tk.Label(f, text=l, width=15, anchor="w", bg=C_CARD).pack(side="left")
         tk.Label(f, textvariable=v, font=("Segoe UI", 10, "bold") if b else ("Segoe UI", 10), bg=C_CARD).pack(side="left"); return f
     
+    def check_completion_status(self, *args):
+        """
+        Dynamically enables/disables the 'Save Complete' button.
+        Requires: At least 1 Tread Batch AND a Green Weight entry.
+        """
+        try:
+            # Check if the listbox for Tread has any items
+            has_tread = self.list_tread.size() > 0
+            # Check if the Green Weight entry variable has text
+            has_weight = len(self.var_weight.get().strip()) > 0
+            
+            if has_tread and has_weight:
+                # Turn button Green and enable it
+                self.btn_save_complete.config(state="normal", bg="#27AE60") 
+            else:
+                # Grey out button and disable it
+                self.btn_save_complete.config(state="disabled", bg="#BDC3C7") 
+        except Exception as e:
+            print(f"Error updating button state: {e}")
+
     # --- UPDATED MULTI-SELECT WITH SCANNER BINDING ---
     def create_multi_select(self, p, l, v_sel, attr):
         f = tk.Frame(p, bg=C_CARD); f.pack(fill="x")
@@ -649,12 +696,16 @@ class PC1SmartApp:
         
         tk.Button(row, text="+", command=lambda: self.add_item(attr, v_sel), bg=C_ACCENT, fg="white", width=3).pack(side="right")
         lb = tk.Listbox(f, height=2, bg="#FAFAFA"); lb.pack(fill="x"); setattr(self, attr, lb)
-        tk.Button(f, text="Clear", command=lambda: getattr(self, attr).delete(0, tk.END), font=("Segoe UI", 7)).pack(anchor="e"); return f
+        tk.Button(f, text="Clear", command=lambda: [getattr(self, attr).delete(0, tk.END), self.check_completion_status()], font=("Segoe UI", 7)).pack(anchor="e")
 
     # --- UPDATED ADD ITEM (Force Uppercase) ---
     def add_item(self, attr, var): 
-        val = var.get().strip().upper() # FORCE UPPERCASE
-        if val: getattr(self, attr).insert(tk.END, val); var.set("")
+        val = var.get().strip().upper()
+        if val: 
+            getattr(self, attr).insert(tk.END, val)
+            var.set("")
+            # TRIGGER CHECK AFTER ADDING BATCH
+            self.check_completion_status()
 
     def get_list_values(self, attr): return ", ".join(getattr(self, attr).get(0, tk.END))
     def add_label(self, p, t): tk.Label(p, text=t, bg=C_CARD).pack(anchor="w", pady=(5,0))

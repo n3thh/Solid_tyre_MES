@@ -158,15 +158,15 @@ class DespatchApp:
         brand = self.var_brand.get().strip()
         quality = self.var_quality.get().strip()
         try: qty = int(self.var_qty.get())
-        except: return messagebox.showerror("Error", "Quantity must be a valid number.")
+        except: return messagebox.showerror("Error", "Quantity must be a valid number.", parent=self.root)
 
         if not size or not brand or not quality or qty <= 0:
-            return messagebox.showerror("Error", "Please fill all fields (Size, Core, Brand, Grade, Qty).")
+            return messagebox.showerror("Error", "Please fill all fields (Size, Core, Brand, Grade, Qty).", parent=self.root)
 
         # Check duplicates in the list
         for line in self.order_lines:
             if line['size'] == size and line['brand'] == brand and line['quality'] == quality:
-                return messagebox.showwarning("Duplicate", "This requirement is already in the list.")
+                return messagebox.showwarning("Duplicate", "This requirement is already in the list.", parent=self.root)
 
         item_id = self.tree_order.insert("", "end", values=(size, brand, quality, qty, 0))
         self.order_lines.append({
@@ -190,7 +190,7 @@ class DespatchApp:
     def load_selected_order(self):
         pi = self.combo_pi.get().strip()
         if not pi:
-            return messagebox.showerror("Error", "Please select a Proforma Invoice (PI) first.")
+            return messagebox.showerror("Error", "Please select a Proforma Invoice (PI) first.", parent=self.root)
 
         # Clear existing grid
         for i in self.tree_order.get_children(): self.tree_order.delete(i)
@@ -212,13 +212,13 @@ class DespatchApp:
                     'req': req, 'scanned': 0, 'tree_id': item_id, 'pi_number': pi
                 })
         else:
-            messagebox.showinfo("Info", "No pending items found for this PI.")
+            messagebox.showinfo("Info", "No pending items found for this PI.", parent=self.root)
 
     def start_scanning(self):
         if not self.var_customer.get().strip():
-            return messagebox.showerror("Error", "Please enter or load a Customer Name.")
+            return messagebox.showerror("Error", "Please enter or load a Customer Name.", parent=self.root)
         if not self.order_lines:
-            return messagebox.showerror("Error", "Add at least one item to the order.")
+            return messagebox.showerror("Error", "Add at least one item to the order.", parent=self.root)
 
         self.is_scanning = True
         self.ent_cust.config(state="disabled")

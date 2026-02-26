@@ -1,0 +1,375 @@
+Excellent.
+Now we design this like a **real industrial system**, not a hobby server.
+
+You are running production data — this must be treated like finance software.
+
+---
+
+# 🎯 OBJECTIVE
+
+Design a **secure, production-grade deployment structure** for:
+
+* PC1 (Building)
+* PC2 (Curing)
+* PC3 (QC)
+* PC4 (Dispatch)
+* Lab
+* CRM
+* Admin
+* PostgreSQL
+
+Running on Ubuntu server in your factory LAN.
+
+---
+
+# 🏗 1️⃣ High-Level Secure Architecture
+
+## 🔐 Recommended Structure (Factory LAN)
+
+```text
+ ┌────────────────────────────┐
+ │     Client Machines        │
+ │ (Tkinter Apps / EXE)       │
+ └──────────────┬─────────────┘
+                │ LAN (Restricted)
+                ▼
+        ┌──────────────────┐
+        │  Ubuntu Server   │
+        │------------------│
+        │ 1. Firewall      │
+        │ 2. PostgreSQL    │
+        │ 3. Backup Agent  │
+        │ 4. Log System    │
+        └──────────────────┘
+```
+
+Later we upgrade to API layer — but for now we secure current model.
+
+---
+
+# 🖥 2️⃣ Server Hardware Layer
+
+You previously discussed:
+
+* Raspberry Pi + NVMe
+* Ubuntu Server
+* Gigabit switch
+
+For production:
+
+### ✅ Recommended:
+
+* Mini PC (Intel NUC / similar)
+* 16GB RAM
+* 256GB NVMe (OS + DB)
+* 1TB HDD (backup)
+* UPS connected
+
+Why?
+
+Raspberry is good for testing.
+Production deserves x86 reliability.
+
+---
+
+# 🐧 3️⃣ Operating System Hardening (Ubuntu Server)
+
+Install:
+
+```bash
+Ubuntu Server LTS (minimal)
+```
+
+Then secure it:
+
+## 🔐 Step 1 – Create Non-Root Admin
+
+```bash
+adduser factoryadmin
+usermod -aG sudo factoryadmin
+```
+
+Disable direct root login.
+
+---
+
+## 🔥 Step 2 – Enable Firewall (UFW)
+
+```bash
+sudo ufw allow 22
+sudo ufw allow from 192.168.0.0/24 to any port 5432
+sudo ufw enable
+```
+
+Block everything except LAN + SSH.
+
+---
+
+## 🚫 Step 3 – Disable External Access
+
+In `/etc/postgresql/*/main/postgresql.conf`
+
+```ini
+listen_addresses = '192.168.0.141'
+```
+
+In `pg_hba.conf` allow only LAN subnet.
+
+No internet exposure.
+
+---
+
+# 🗄 4️⃣ Database Security Architecture
+
+## 🚨 CRITICAL: Stop Using postgres Superuser
+
+Create dedicated DB role:
+
+```sql
+CREATE USER factory_app_user WITH PASSWORD 'STRONG_PASSWORD';
+GRANT CONNECT ON DATABASE tyre_factory_db TO factory_app_user;
+GRANT USAGE ON SCHEMA public TO factory_app_user;
+GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO factory_app_user;
+```
+
+Never use postgres in application.
+
+---
+
+## 🔑 Password Storage Security
+
+In `users` table:
+
+Replace plain passwords with:
+
+```python
+bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+```
+
+Never store raw passwords again.
+
+---
+
+# 🔒 5️⃣ Application Security Upgrade
+
+## Move DB Credentials to `.env`
+
+Instead of:
+
+```python
+DB_PASS = "factory123"
+```
+
+Use:
+
+```bash
+pip install python-dotenv
+```
+
+Create `.env` file on server:
+
+```env
+DB_HOST=192.168.0.141
+DB_NAME=tyre_factory_db
+DB_USER=factory_app_user
+DB_PASS=SuperStrongPassword
+```
+
+And load inside DBManager.
+
+---
+
+# 📜 6️⃣ Logging Architecture
+
+Create centralized logging.
+
+Instead of `print()`:
+
+Use:
+
+```python
+import logging
+
+logging.basicConfig(
+    filename='factory_system.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+```
+
+Log:
+
+* Logins
+* QC decisions
+* Dispatch events
+* Admin changes
+* Failed logins
+
+This becomes legal audit trail.
+
+---
+
+# 💾 7️⃣ Automated Backup System (Mandatory)
+
+## Daily DB Backup Script
+
+Create `/opt/factory_backup.sh`
+
+```bash
+#!/bin/bash
+DATE=$(date +%F)
+pg_dump tyre_factory_db > /backup/tyre_factory_$DATE.sql
+```
+
+Schedule:
+
+```bash
+crontab -e
+```
+
+Add:
+
+```bash
+0 2 * * * /opt/factory_backup.sh
+```
+
+Backup at 2 AM daily.
+
+---
+
+## 🔁 3-Level Backup Strategy
+
+1. Local daily backup
+2. Weekly external USB backup
+3. Cloud encrypted backup (optional)
+
+Never rely on one disk.
+
+---
+
+# 🌐 8️⃣ Network Segmentation (Very Important)
+
+If possible:
+
+Separate VLAN:
+
+| VLAN   | Purpose                |
+| ------ | ---------------------- |
+| VLAN 1 | Office PCs             |
+| VLAN 2 | Factory Floor Machines |
+| VLAN 3 | Server                 |
+
+Only allow:
+
+* Factory PCs → DB server
+* Admin PC → SSH
+
+Block internet access from DB server.
+
+---
+
+# 🔄 9️⃣ Application Deployment Strategy
+
+Instead of copying Python manually:
+
+### Option A (Current Model Safe Version)
+
+* Convert to EXE using PyInstaller
+* Place on shared network folder
+* Version number in UI header
+* Replace all PCs at once
+
+### Option B (Better)
+
+* Central network share
+* Clients run from shared folder
+* Only server update required
+
+---
+
+# 🧱 10️⃣ Production-Grade Deployment Model (Recommended Next Stage)
+
+When ready:
+
+```text
+Clients
+   ↓
+FastAPI Backend (Docker)
+   ↓
+PostgreSQL (Docker)
+```
+
+Advantages:
+
+* DB hidden from clients
+* Centralized validation
+* Role-based access
+* JWT authentication
+* Easier mobile app integration
+* Future cloud sync possible
+
+---
+
+# 🛡 11️⃣ Access Control Model
+
+Define Roles:
+
+| Role       | Access        |
+| ---------- | ------------- |
+| OPERATOR   | PC1 / limited |
+| SUPERVISOR | PC2           |
+| QC         | PC3           |
+| LOGISTICS  | PC4           |
+| MANAGER    | CRM           |
+| ADMIN      | All           |
+
+Add role check before module launch.
+
+Never trust UI alone.
+
+---
+
+# ⚠️ 12️⃣ Disaster Recovery Plan
+
+Ask yourself:
+
+If server dies tomorrow:
+
+1. How long to restore?
+2. Where is backup?
+3. Who knows password?
+4. Is procedure written?
+
+Create:
+
+* Recovery checklist document
+* Store printed copy in office
+
+---
+
+# 📊 13️⃣ Current Risk Level vs After Upgrade
+
+| Area              | Now       | After Deployment Plan |
+| ----------------- | --------- | --------------------- |
+| DB Access         | ⚠️ Weak   | ✅ Controlled          |
+| Passwords         | ❌ Plain   | ✅ Hashed              |
+| Backup            | ❌ Manual  | ✅ Automated           |
+| Firewall          | ❓ Unknown | ✅ Restricted          |
+| Audit Trail       | ❌ None    | ✅ Logged              |
+| Disaster Recovery | ❌ No      | ✅ Defined             |
+
+---
+
+# 🧠 Final Professional Assessment
+
+Right now your system is:
+
+> Functional but exposed.
+
+After this deployment structure:
+
+> Industrial-grade internal secure system.
+
+---
+
+

@@ -84,5 +84,27 @@ class DBManager:
             
         return result
 
+    @staticmethod
+    def search_global(search_term):
+        """
+        Searches across Orders, Customers, and Tyre Sizes in one go.
+        Returns a list of matching records.
+        """
+        # We join master_orders with customers to search both at once
+        query = """
+            SELECT o.order_no, c.company_name, o.total_value_inr, o.commit_date, o.status
+            FROM master_orders o
+            JOIN customers c ON o.cust_id = c.cust_id
+            WHERE o.order_no ILIKE %s 
+               OR c.company_name ILIKE %s
+               OR o.status ILIKE %s
+            ORDER BY o.commit_date ASC;
+        """
+        # The % symbols allow for partial matches (e.g. typing '20' finds 'PI-20')
+        term = f"%{search_term}%"
+        
+        # We pass 'term' 3 times to fill the 3 '%s' placeholders in the query
+        return DBManager.fetch_data(query, (term, term, term))    
+
 # AUTO-INITIALIZE ON IMPORT
 DBManager.initialize()

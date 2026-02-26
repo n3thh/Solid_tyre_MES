@@ -1,0 +1,134 @@
+postgres=# \c tyre_factory_db
+You are now connected to database "tyre_factory_db" as user "postgres".
+tyre_factory_db=# \d
+                     List of relations
+ Schema |            Name            |   Type   |  Owner   
+--------+----------------------------+----------+----------
+ public | bead_master                | table    | postgres
+ public | currency_rates             | table    | postgres
+ public | customer_master            | table    | postgres
+ public | customers                  | table    | postgres
+ public | customers_cust_id_seq      | sequence | postgres
+ public | master_orders              | table    | postgres
+ public | master_orders_order_id_seq | sequence | postgres
+ public | pc1_building               | table    | postgres
+ public | pc1_curing_c_id_seq        | sequence | postgres
+ public | pc1_mould_mapping          | table    | postgres
+ public | pc1_mould_mapping_id_seq   | sequence | postgres
+ public | pc2_curing                 | table    | postgres
+ public | pc3_quality                | table    | postgres
+ public | pc3_quality_id_seq         | sequence | postgres
+ public | press_master               | table    | postgres
+ public | product_catalog            | table    | postgres
+ public | product_catalog_sku_id_seq | sequence | postgres
+ public | production_plan            | table    | postgres
+ public | production_plan_id_seq     | sequence | postgres
+ public | qc_defects_master          | table    | postgres
+ public | qc_defects_master_id_seq   | sequence | postgres
+ public | raw_material_qc            | table    | postgres
+ public | tyre_specs                 | table    | postgres
+ public | users                      | table    | postgres
+(24 rows)
+
+tyre_factory_db=# \d pc1_building
+                                       Table "public.pc1_building"
+      Column       |            Type             | Collation | Nullable |            Default             
+-------------------+-----------------------------+-----------+----------+--------------------------------
+ b_id              | character varying(50)       |           | not null | 
+ press_id          | character varying(50)       |           |          | 
+ daylight          | character varying(50)       |           |          | 
+ tyre_size         | character varying(50)       |           |          | 
+ core_size         | character varying(50)       |           |          | 
+ brand             | character varying(50)       |           |          | 
+ pattern           | character varying(50)       |           |          | 
+ quality           | character varying(50)       |           |          | 
+ mould_id_marks    | character varying(100)      |           |          | 
+ batch_mid         | text                        |           |          | 
+ tread_type        | character varying(50)       |           |          | 
+ green_tyre_weight | numeric(10,2)               |           |          | 
+ operator_id       | character varying(50)       |           |          | 
+ shift             | character varying(10)       |           |          | 
+ created_at        | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+ status            | character varying(20)       |           |          | 'COMPLETED'::character varying
+ ct_batch          | text                        |           |          | 
+ is_pob            | boolean                     |           |          | false
+ birth_time        | timestamp without time zone |           |          | 
+ final_weight      | numeric(10,2)               |           |          | 
+ updated_at        | timestamp without time zone |           |          | 
+ batch_tread       | character varying(50)       |           |          | 
+ batch_gum         | character varying(50)       |           |          | 
+ batch_core        | character varying(50)       |           |          | 
+ ms_rim_weight     | numeric(10,2)               |           |          | 0.0
+ building_remarks  | text                        |           |          | 
+ order_id          | integer                     |           |          | 
+Indexes:
+    "pc1_building_pkey" PRIMARY KEY, btree (b_id)
+
+tyre_factory_db=# \d pc2_curing
+                                              Table "public.pc2_curing"
+       Column        |            Type             | Collation | Nullable |                 Default                  
+---------------------+-----------------------------+-----------+----------+------------------------------------------
+ c_id                | integer                     |           | not null | nextval('pc1_curing_c_id_seq'::regclass)
+ b_id                | character varying(20)       |           |          | 
+ serial_no           | character varying(50)       |           |          | 
+ process_type        | character varying(20)       |           |          | 'STANDARD'::character varying
+ press_no            | character varying(50)       |           |          | 
+ mould_no            | character varying(20)       |           |          | 
+ operator_id         | character varying(50)       |           |          | 
+ status              | character varying(50)       |           |          | 'CURING'::character varying
+ green_weight        | numeric(5,2)                |           |          | 
+ final_weight        | numeric(5,2)                |           |          | 
+ flash_waste         | numeric(5,2)                |           |          | 
+ start_time          | timestamp without time zone |           |          | now()
+ press_finish_time   | timestamp without time zone |           |          | 
+ oven_start_time     | timestamp without time zone |           |          | 
+ oven_finish_time    | timestamp without time zone |           |          | 
+ qc_grade            | character varying(10)       |           |          | 
+ qc_remarks          | text                        |           |          | 
+ temperature         | character varying(10)       |           |          | 
+ pressure            | character varying(10)       |           |          | 
+ is_oven             | boolean                     |           |          | false
+ final_cured_weight  | numeric(5,2)                |           |          | 
+ visual_qc_status    | character varying(20)       |           |          | 
+ visual_qc_remarks   | text                        |           |          | 
+ curing_time_minutes | integer                     |           |          | 
+ end_time            | timestamp without time zone |           |          | 
+ idle_time_minutes   | integer                     |           |          | 
+ overcure_minutes    | integer                     |           |          | 0
+ operator_name       | character varying(50)       |           |          | 
+ supervisor_name     | character varying(50)       |           |          | 
+ core_hardness_min   | character varying(10)       |           |          | 
+ core_hardness_max   | character varying(10)       |           |          | 
+ tread_hardness_min  | character varying(10)       |           |          | 
+ tread_hardness_max  | character varying(10)       |           |          | 
+ qc_defects          | text                        |           |          | 
+ qc_engineer         | character varying(50)       |           |          | 
+ qc_time             | timestamp without time zone |           |          | 
+ shift               | character varying(5)        |           |          | 
+ press_machine       | character varying(50)       |           |          | 
+Indexes:
+    "pc1_curing_pkey" PRIMARY KEY, btree (c_id)
+
+tyre_factory_db=# \d pc3_quality
+                                            Table "public.pc3_quality"
+       Column       |            Type             | Collation | Nullable |                 Default                 
+--------------------+-----------------------------+-----------+----------+-----------------------------------------
+ id                 | integer                     |           | not null | nextval('pc3_quality_id_seq'::regclass)
+ tyre_id            | character varying(50)       |           |          | 
+ grade              | character varying(10)       |           | not null | 
+ defect_codes       | character varying(100)      |           |          | 
+ inspector_name     | character varying(50)       |           |          | 
+ inspected_at       | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+ is_finalized       | boolean                     |           |          | false
+ qc_remarks         | text                        |           |          | 
+ hardness_core_min  | integer                     |           |          | 
+ hardness_core_max  | integer                     |           |          | 
+ hardness_tread_min | integer                     |           |          | 
+ hardness_tread_max | integer                     |           |          | 
+ customer_name      | character varying(100)      |           |          | 
+ despatched_at      | timestamp without time zone |           |          | 
+Indexes:
+    "pc3_quality_pkey" PRIMARY KEY, btree (id)
+
+tyre_factory_db=# 
+

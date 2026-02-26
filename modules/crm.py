@@ -40,6 +40,8 @@ class CRMApp:
         self.o_core = tk.StringVar()
         self.o_brand = tk.StringVar()
         self.o_qual = tk.StringVar()
+        self.o_type = tk.StringVar(value="CUSHION") # Updated Default
+        self.o_pattern = tk.StringVar(value="VXT-01") # Updated Default
         self.o_qty = tk.StringVar()
         self.o_price = tk.StringVar()
         self.o_date = tk.StringVar(value=(datetime.datetime.now() + datetime.timedelta(days=30)).strftime("%Y-%m-%d"))
@@ -75,7 +77,9 @@ class CRMApp:
             "ALTER TABLE master_orders ADD COLUMN IF NOT EXISTS committed_date DATE",
             "ALTER TABLE master_orders ADD COLUMN IF NOT EXISTS unit_price_foreign NUMERIC(10,2) DEFAULT 0.00",
             "ALTER TABLE master_orders ADD COLUMN IF NOT EXISTS currency VARCHAR(10) DEFAULT 'INR'",
-            "ALTER TABLE master_orders ADD COLUMN IF NOT EXISTS unit_price_inr NUMERIC(10,2) DEFAULT 0.00"
+            "ALTER TABLE master_orders ADD COLUMN IF NOT EXISTS unit_price_inr NUMERIC(10,2) DEFAULT 0.00",
+            "ALTER TABLE master_orders ADD COLUMN IF NOT EXISTS tyre_type VARCHAR(50)",
+            "ALTER TABLE master_orders ADD COLUMN IF NOT EXISTS pattern VARCHAR(50)"
         ]
         
         for q in queries:
@@ -108,7 +112,6 @@ class CRMApp:
 
     # ================= TAB 1: DASHBOARD =================
     def build_dash_tab(self):
-        # KPIs
         f_kpi = tk.Frame(self.tab_dash, bg=C_BG)
         f_kpi.pack(fill="x", pady=10)
         
@@ -118,7 +121,6 @@ class CRMApp:
         
         tk.Button(f_kpi, text="🔄 REFRESH DASHBOARD", command=self.refresh_dashboard, bg="#34495E", fg="white", font=("Segoe UI", 10, "bold")).pack(side="right", padx=20)
 
-        # Hot List Grid
         card = self.create_card(self.tab_dash, "🔥 PRIORITY HOT LIST (Production Targets)")
         cols = ("Priority", "PI Number", "Customer", "Deadline", "Pending Qty", "Pending Value (₹)")
         self.tree_dash = ttk.Treeview(card, columns=cols, show="headings", height=15)
@@ -129,9 +131,8 @@ class CRMApp:
         self.tree_dash.column("Pending Value (₹)", width=150, anchor="e")
         self.tree_dash.pack(fill="both", expand=True)
 
-        # Color coding for priorities
-        self.tree_dash.tag_configure('p1', background='#FDEDEC', foreground='#C0392B') # Critical
-        self.tree_dash.tag_configure('late', background='#F5B041', foreground='black') # Late
+        self.tree_dash.tag_configure('p1', background='#FDEDEC', foreground='#C0392B')
+        self.tree_dash.tag_configure('late', background='#F5B041', foreground='black')
 
     def create_kpi_card(self, parent, title, val, color):
         f = tk.Frame(parent, bg=color, padx=20, pady=15); f.pack(side="left", fill="x", expand=True, padx=10)
@@ -143,13 +144,14 @@ class CRMApp:
     def refresh_dashboard(self):
         for i in self.tree_dash.get_children(): self.tree_dash.delete(i)
         
+        # FIX: Added (status IS NULL OR status != 'CLOSED')
         q = """
             SELECT 
                 priority_level, pi_number, customer_name, committed_date,
                 SUM(req_qty - COALESCE(produced_qty, 0)) as pending_qty,
                 SUM((req_qty - COALESCE(produced_qty, 0)) * unit_price_inr) as pending_value
             FROM master_orders
-            WHERE status != 'CLOSED' AND (req_qty - COALESCE(produced_qty, 0)) > 0
+            WHERE (status IS NULL OR status != 'CLOSED') AND (req_qty - COALESCE(produced_qty, 0)) > 0
             GROUP BY priority_level, pi_number, customer_name, committed_date
             ORDER BY priority_level ASC, committed_date ASC
         """
@@ -173,7 +175,6 @@ class CRMApp:
                 fmt_val = f"₹ {float(p_val):,.2f}" if p_val else "₹ 0.00"
                 self.tree_dash.insert("", "end", values=(pri, pi, cust, c_date, p_qty, fmt_val), tags=(tag,))
         
-        # Update KPIs
         lakhs = tot_val / 100000.0
         self.lbl_kpi_val.config(text=f"₹ {lakhs:.2f} Lakhs")
         self.lbl_kpi_ord.config(text=str(tot_ord))
@@ -184,7 +185,7 @@ class CRMApp:
         f_top = tk.Frame(self.tab_orders, bg=C_CARD, pady=10, padx=10, relief="solid", bd=1)
         f_top.pack(fill="x", pady=5)
         
-        # Row 1
+        # --- ROW 1: Identity ---
         self.create_entry(f_top, "PI Number:", self.o_pi, 0, 0)
         tk.Label(f_top, text="Customer:", bg=C_CARD, font=("Segoe UI", 9, "bold")).grid(row=0, column=2, sticky="w", padx=5)
         self.combo_cust = ttk.Combobox(f_top, textvariable=self.o_cust, state="readonly", width=18)
@@ -195,17 +196,29 @@ class CRMApp:
         self.create_entry(f_top, "Brand:", self.o_brand, 0, 8)
         self.create_entry(f_top, "Grade:", self.o_qual, 0, 10)
         
-        # Row 2 (Business Logic)
+        # --- ROW 2 & 3: Details (With User's Specific Tyre Types & Patterns) ---
         self.create_entry(f_top, "Req Qty:", self.o_qty, 2, 0)
-        self.create_entry(f_top, "Unit Price (Per Tyre):", self.o_price, 2, 2)
+        self.create_entry(f_top, "Unit Price:", self.o_price, 2, 2)
         
-        tk.Label(f_top, text="Deadline (YYYY-MM-DD):", bg=C_CARD, font=("Segoe UI", 9, "bold")).grid(row=2, column=4, sticky="w", padx=5)
-        tk.Entry(f_top, textvariable=self.o_date, width=12, bg="#FEF9E7").grid(row=3, column=4, padx=5)
-        
-        tk.Label(f_top, text="Priority (1=High, 5=Low):", bg=C_CARD, font=("Segoe UI", 9, "bold")).grid(row=2, column=6, sticky="w", padx=5)
-        ttk.Combobox(f_top, textvariable=self.o_priority, values=["1", "2", "3", "4", "5"], width=5, state="readonly").grid(row=3, column=6, padx=5)
+        tk.Label(f_top, text="Tyre Type:", bg=C_CARD, font=("Segoe UI", 9, "bold")).grid(row=2, column=4, sticky="w", padx=5)
+        ttk.Combobox(f_top, textvariable=self.o_type, values=["CUSHION", "PRESS-ON-BAND(POB)", "APERTURE", "SKID-STEER"], width=15, state="readonly").grid(row=3, column=4, padx=5)
 
-        tk.Button(f_top, text="➕ ADD/UPDATE ORDER", command=self.save_order, bg=C_SUCCESS, fg="white", font=("Segoe UI", 9, "bold")).grid(row=3, column=8, columnspan=3, padx=15)
+        tk.Label(f_top, text="Pattern:", bg=C_CARD, font=("Segoe UI", 9, "bold")).grid(row=2, column=6, sticky="w", padx=5)
+        ttk.Combobox(f_top, textvariable=self.o_pattern, values=["VXT-01", "VXT-02", "VXR-01", "VXM-01", "VXS-01"], width=12, state="readonly").grid(row=3, column=6, padx=5)
+
+        tk.Label(f_top, text="Deadline (YYYY-MM-DD):", bg=C_CARD, font=("Segoe UI", 9, "bold")).grid(row=2, column=8, sticky="w", padx=5)
+        tk.Entry(f_top, textvariable=self.o_date, width=14, bg="#FEF9E7").grid(row=3, column=8, padx=5)
+        
+        tk.Label(f_top, text="Pri (1=Hi, 5=Lo):", bg=C_CARD, font=("Segoe UI", 9, "bold")).grid(row=2, column=10, sticky="w", padx=5)
+        ttk.Combobox(f_top, textvariable=self.o_priority, values=["1", "2", "3", "4", "5"], width=8, state="readonly").grid(row=3, column=10, padx=5)
+
+        # --- ROW 4: ACTION BUTTONS ---
+        btn_frame = tk.Frame(f_top, bg=C_CARD)
+        btn_frame.grid(row=4, column=0, columnspan=12, pady=(15, 5), sticky="we", padx=15)
+        
+        tk.Button(btn_frame, text="🧹 CLEAR FORM", command=self.clear_order_form, bg="#95A5A6", fg="white", font=("Segoe UI", 10, "bold"), width=15).pack(side="left", padx=5)
+        tk.Button(btn_frame, text="➕ ADD / 💾 UPDATE ORDER", command=self.save_order, bg=C_SUCCESS, fg="white", font=("Segoe UI", 10, "bold")).pack(side="left", padx=5, expand=True, fill="x")
+        tk.Button(btn_frame, text="🗑️ DELETE ORDER", command=self.delete_order, bg=C_ERR, fg="white", font=("Segoe UI", 10, "bold"), width=15).pack(side="right", padx=5)
 
         # CSV Upload Frame
         f_csv = tk.Frame(self.tab_orders, bg=C_BG)
@@ -214,16 +227,71 @@ class CRMApp:
         tk.Button(f_csv, text="⬇ Sample CSV", command=self.download_sample_orders).pack(side="left", padx=10)
 
         # Treeview
-        cols = ("PI Number", "Customer", "Size", "Qty", "Price", "Val (INR)", "Deadline", "Pri")
+        cols = ("PI Number", "Customer", "Size", "Type", "Pattern", "Qty", "Price", "Val (INR)", "Deadline")
         self.tree_ord = ttk.Treeview(self.tab_orders, columns=cols, show="headings", height=15)
         for c in cols: self.tree_ord.heading(c, text=c)
         self.tree_ord.column("Qty", width=50, anchor="center")
         self.tree_ord.column("Price", width=80, anchor="e")
         self.tree_ord.column("Val (INR)", width=100, anchor="e")
         self.tree_ord.column("Deadline", width=90, anchor="center")
-        self.tree_ord.column("Pri", width=40, anchor="center")
         self.tree_ord.pack(fill="both", expand=True, pady=10)
+        
+        self.tree_ord.bind('<ButtonRelease-1>', self.select_order_row)
 
+    # --- Form Controls ---
+    def clear_order_form(self):
+        self.o_pi.set("")
+        self.o_cust.set("")
+        self.o_size.set("")
+        self.o_core.set("")
+        self.o_brand.set("")
+        self.o_qual.set("")
+        self.o_type.set("CUSHION") # Updated Default
+        self.o_pattern.set("VXT-01") # Updated Default
+        self.o_qty.set("")
+        self.o_price.set("")
+        self.o_date.set((datetime.datetime.now() + datetime.timedelta(days=30)).strftime("%Y-%m-%d"))
+        self.o_priority.set("3")
+
+    def select_order_row(self, event):
+        sel = self.tree_ord.selection()
+        if not sel: return
+        
+        pi = self.tree_ord.item(sel[0])['values'][0]
+        
+        q = """SELECT pi_number, customer_name, tyre_size, core_size, brand, quality, tyre_type, pattern, 
+                      req_qty, unit_price_foreign, committed_date, priority_level 
+               FROM master_orders WHERE pi_number = %s"""
+        res = DBManager.fetch_data(q, (pi,))
+        
+        if res:
+            r = res[0]
+            self.o_pi.set(r[0])
+            self.o_cust.set(r[1])
+            self.o_size.set(r[2])
+            self.o_core.set(r[3] if r[3] else "")
+            self.o_brand.set(r[4] if r[4] else "")
+            self.o_qual.set(r[5] if r[5] else "")
+            self.o_type.set(r[6] if r[6] else "CUSHION")
+            self.o_pattern.set(r[7] if r[7] else "VXT-01")
+            self.o_qty.set(str(r[8]))
+            self.o_price.set(str(r[9]))
+            self.o_date.set(str(r[10]))
+            self.o_priority.set(str(r[11]))
+
+    def delete_order(self):
+        pi = self.o_pi.get().strip().upper()
+        if not pi:
+            return messagebox.showwarning("Warning", "Please select an order to delete.",parent=self.root)
+            
+        if messagebox.askyesno("Confirm Delete", f"Are you sure you want to permanently delete PI Number: {pi}?", parent=self.root):
+            if DBManager.execute_query("DELETE FROM master_orders WHERE pi_number = %s", (pi,)):
+                messagebox.showinfo("Deleted", f"Order {pi} has been deleted.",parent=self.root)
+                self.clear_order_form()
+                self.refresh_orders()
+                self.refresh_dashboard()
+
+    # --- Smart Save (Insert or Update) ---
     def save_order(self):
         pi = self.o_pi.get().strip().upper()
         cust = self.o_cust.get().strip()
@@ -231,6 +299,8 @@ class CRMApp:
         core = self.o_core.get().strip().upper()
         brand = self.o_brand.get().strip().upper()
         qual = self.o_qual.get().strip().upper()
+        t_type = self.o_type.get().strip()
+        t_pattern = self.o_pattern.get().strip()
         deadline = self.o_date.get().strip()
         
         try: 
@@ -238,34 +308,55 @@ class CRMApp:
             price_for = float(self.o_price.get())
             pri = int(self.o_priority.get())
         except ValueError:
-            return messagebox.showerror("Error", "Qty, Price, and Priority must be numbers.")
+            return messagebox.showerror("Error", "Qty, Price, and Priority must be valid numbers.",parent=self.root)
             
-        if not all([pi, cust, size, brand, deadline]): return messagebox.showerror("Error", "Missing required fields.")
+        if not all([pi, cust, size, brand, deadline]): 
+            return messagebox.showerror("Error", "Missing required fields.",parent=self.root)
 
-        # Logic: Determine Currency and INR Value
         curr = "INR"
         if cust in self.customer_map: curr = self.customer_map[cust][1]
-        
         rate = self.exchange_rates.get(curr, 1.0)
         price_inr = price_for * rate
 
-        q = """INSERT INTO master_orders (
-                pi_number, customer_name, tyre_size, core_size, brand, quality, req_qty, 
-                priority_level, committed_date, unit_price_foreign, currency, unit_price_inr) 
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
-               
-        if DBManager.execute_query(q, (pi, cust, size, core, brand, qual, qty, pri, deadline, price_for, curr, price_inr)):
+        check_q = "SELECT order_id FROM master_orders WHERE pi_number = %s"
+        existing = DBManager.fetch_data(check_q, (pi,))
+        
+        if existing:
+            update_q = """UPDATE master_orders SET 
+                            customer_name=%s, tyre_size=%s, core_size=%s, brand=%s, quality=%s, 
+                            tyre_type=%s, pattern=%s, req_qty=%s, priority_level=%s, committed_date=%s, 
+                            unit_price_foreign=%s, currency=%s, unit_price_inr=%s
+                          WHERE pi_number=%s"""
+            success = DBManager.execute_query(update_q, (cust, size, core, brand, qual, t_type, t_pattern, 
+                                                         qty, pri, deadline, price_for, curr, price_inr, pi))
+            msg = f"Order {pi} Updated Successfully!"
+        else:
+            # FIX: Adding 'OPEN' to the status so it shows up in the tables immediately
+            insert_q = """INSERT INTO master_orders (
+                            pi_number, customer_name, tyre_size, core_size, brand, quality, tyre_type, pattern, 
+                            req_qty, priority_level, committed_date, unit_price_foreign, currency, unit_price_inr, status) 
+                          VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN')"""
+            success = DBManager.execute_query(insert_q, (pi, cust, size, core, brand, qual, t_type, t_pattern, 
+                                                         qty, pri, deadline, price_for, curr, price_inr))
+            msg = f"New Order Added!\nTotal Value: ₹{price_inr * qty:,.2f}"
+
+        if success:
             self.refresh_orders()
-            messagebox.showinfo("Success", f"Order Added!\nTotal Value: ₹{price_inr * qty:,.2f}")
+            self.refresh_dashboard()
+            messagebox.showinfo("Success", msg, parent=self.root)
+            self.clear_order_form() 
 
     def refresh_orders(self):
         for i in self.tree_ord.get_children(): self.tree_ord.delete(i)
-        q = "SELECT pi_number, customer_name, tyre_size, req_qty, CONCAT(currency, ' ', unit_price_foreign), unit_price_inr * req_qty, committed_date, priority_level FROM master_orders WHERE status != 'CLOSED' ORDER BY order_id DESC"
+        
+        # FIX: Added (status IS NULL OR status != 'CLOSED')
+        q = "SELECT pi_number, customer_name, tyre_size, tyre_type, pattern, req_qty, CONCAT(currency, ' ', unit_price_foreign), unit_price_inr * req_qty, committed_date FROM master_orders WHERE status IS NULL OR status != 'CLOSED' ORDER BY order_id DESC"
+        
         res = DBManager.fetch_data(q)
         if res:
             for r in res:
                 fmt_r = list(r)
-                if r[5]: fmt_r[5] = f"₹ {float(r[5]):,.2f}"
+                if r[7]: fmt_r[7] = f"₹ {float(r[7]):,.2f}"
                 self.tree_ord.insert("", "end", values=fmt_r)
 
     def upload_orders_csv(self):
@@ -288,19 +379,21 @@ class CRMApp:
             try: pri = int(r.get('PRIORITY', 3))
             except: pri = 3
 
+            # FIX: Inserts 'OPEN' status
             q = """INSERT INTO master_orders (
-                    pi_number, customer_name, tyre_size, core_size, brand, quality, req_qty, 
-                    priority_level, committed_date, unit_price_foreign, currency, unit_price_inr) 
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
-            if DBManager.execute_query(q, (r.get('PI_NUMBER'), cust, r.get('SIZE'), r.get('CORE'), r.get('BRAND'), r.get('GRADE'), qty, pri, r.get('DEADLINE'), price_for, curr, price_inr)):
+                    pi_number, customer_name, tyre_size, core_size, brand, quality, tyre_type, pattern, req_qty, 
+                    priority_level, committed_date, unit_price_foreign, currency, unit_price_inr, status) 
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN')"""
+            
+            if DBManager.execute_query(q, (r.get('PI_NUMBER'), cust, r.get('SIZE'), r.get('CORE'), r.get('BRAND'), r.get('GRADE'), r.get('TYPE', 'CUSHION'), r.get('PATTERN', 'VXT-01'), qty, pri, r.get('DEADLINE'), price_for, curr, price_inr)):
                 count += 1
         self.refresh_orders(); self.refresh_dashboard()
-        messagebox.showinfo("Success", f"Uploaded {count} Orders")
+        messagebox.showinfo("Success", f"Uploaded {count} Orders",parent=self.root)
 
     def download_sample_orders(self):
         self._save_csv("Sample_Orders_CRM.csv", 
-                       ["PI_NUMBER", "CUSTOMER", "SIZE", "CORE", "BRAND", "GRADE", "QTY", "UNIT_PRICE", "DEADLINE", "PRIORITY"], 
-                       [["PI-001", "BOSON RUSSIA", "5.00-8", "3.00", "BOSON", "PREMIUM", "100", "1500.50", "2026-03-01", "1"]])
+                       ["PI_NUMBER", "CUSTOMER", "SIZE", "CORE", "BRAND", "GRADE", "TYPE", "PATTERN", "QTY", "UNIT_PRICE", "DEADLINE", "PRIORITY"], 
+                       [["PI-001", "BOSON RUSSIA", "5.00-8", "3.00", "BOSON", "PREMIUM", "CUSHION", "VXT-01", "100", "1500.50", "2026-03-01", "1"]])
 
     # ================= TAB 3: CUSTOMERS =================
     def build_cust_tab(self):
@@ -332,7 +425,7 @@ class CRMApp:
         cid = self.c_id.get().strip().upper()
         cname = self.c_name.get().strip().upper()
         
-        if not cid or not cname: return messagebox.showerror("Error", "ID and Name required.")
+        if not cid or not cname: return messagebox.showerror("Error", "ID and Name required.",parent=self.root)
         
         q = """INSERT INTO customer_master (customer_id, customer_name, region, market_type, default_currency) 
                VALUES (%s, %s, %s, %s, %s) 
@@ -376,7 +469,7 @@ class CRMApp:
         q = "UPDATE currency_rates SET rate_to_inr=%s, last_updated=NOW() WHERE currency_code='USD'"
         if DBManager.execute_query(q, (rate,)):
             self.load_currency()
-            messagebox.showinfo("Success", "Rate Updated! Future orders will use this rate.")
+            messagebox.showinfo("Success", "Rate Updated! Future orders will use this rate.",parent=self.root)
 
     def load_currency(self):
         for i in self.tree_curr.get_children(): self.tree_curr.delete(i)
@@ -417,7 +510,7 @@ class CRMApp:
                 reader = csv.DictReader(f)
                 reader.fieldnames = [str(n).strip().upper() for n in reader.fieldnames]
                 for row in reader: data.append(row)
-        except Exception as e: messagebox.showerror("Error", f"CSV Error: {e}"); return None
+        except Exception as e: messagebox.showerror("Error", f"CSV Error: {e}",parent=self.root); return None
         return data
 
     def _save_csv(self, fname, header, rows):
@@ -425,7 +518,7 @@ class CRMApp:
         if path:
             with open(path, 'w', newline='') as f:
                 w = csv.writer(f); w.writerow(header); w.writerows(rows)
-            messagebox.showinfo("Success", "File Saved")
+            messagebox.showinfo("Success", "File Saved",parent=self.root)
 
 if __name__ == "__main__":
     root = tk.Tk(); app = CRMApp(root); root.mainloop()

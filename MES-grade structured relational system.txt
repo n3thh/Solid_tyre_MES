@@ -1,0 +1,436 @@
+Perfect.
+Now we move from “working database” to **professional industrial schema design**.
+
+This will transform your system from:
+
+> Functional traceability
+
+into
+
+> Structured Manufacturing Execution + ERP-grade data model
+
+I’ll redesign this properly for:
+
+* Data integrity
+* Performance
+* Scalability
+* Auditability
+* Security
+* Clean relational design
+
+---
+
+# 🏗 1️⃣ Design Philosophy
+
+We will follow:
+
+### ✅ 3rd Normal Form (3NF)
+
+No duplicate data
+No derived data stored unnecessarily
+Proper foreign keys
+
+### ✅ Strong Constraints
+
+* Foreign keys
+* Unique constraints
+* CHECK constraints
+* NOT NULL where required
+
+### ✅ Clear Separation of Domains
+
+We divide your system into domains:
+
+1. Identity & Access
+2. Master Data
+3. Production Planning
+4. PC1 – Building
+5. PC2 – Curing
+6. PC3 – QC
+7. Dispatch
+8. CRM / Sales
+9. Raw Material QC
+10. Audit & Logs
+
+---
+
+# 🧠 2️⃣ High-Level Professional Schema
+
+```text
+AUTH DOMAIN
+│
+├── roles
+├── users
+├── login_audit
+
+MASTER DATA DOMAIN
+│
+├── tyre_master
+├── tyre_specifications
+├── bead_master
+├── mould_master
+├── press_master
+├── defect_master
+
+CRM DOMAIN
+│
+├── customer_master
+├── currency_rates
+├── master_orders
+├── order_lines
+
+PRODUCTION DOMAIN
+│
+├── production_plan
+├── plan_machine_assignment
+
+PC1 DOMAIN
+│
+├── pc1_build_log
+├── pc1_material_usage
+
+PC2 DOMAIN
+│
+├── pc2_curing_log
+
+PC3 DOMAIN
+│
+├── pc3_qc_log
+├── pc3_defects
+
+DISPATCH DOMAIN
+│
+├── dispatch_header
+├── dispatch_items
+
+LAB DOMAIN
+│
+├── raw_material_batches
+├── raw_material_qc_log
+```
+
+This is enterprise structure.
+
+---
+
+# 🔐 3️⃣ AUTH DOMAIN (Secure & Clean)
+
+## roles
+
+```sql
+CREATE TABLE roles (
+    role_id SERIAL PRIMARY KEY,
+    role_name VARCHAR(50) UNIQUE NOT NULL
+);
+```
+
+---
+
+## users
+
+```sql
+CREATE TABLE users (
+    user_id VARCHAR(50) PRIMARY KEY,
+    full_name VARCHAR(100) NOT NULL,
+    password_hash TEXT NOT NULL,
+    role_id INTEGER REFERENCES roles(role_id),
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+No plain password ever again.
+
+---
+
+## login_audit
+
+```sql
+CREATE TABLE login_audit (
+    id SERIAL PRIMARY KEY,
+    user_id VARCHAR(50) REFERENCES users(user_id),
+    login_time TIMESTAMP DEFAULT NOW(),
+    success BOOLEAN,
+    ip_address VARCHAR(50)
+);
+```
+
+Now you have traceable login history.
+
+---
+
+# 📚 4️⃣ MASTER DATA DOMAIN
+
+## tyre_master
+
+One row per product type.
+
+```sql
+CREATE TABLE tyre_master (
+    tyre_id SERIAL PRIMARY KEY,
+    tyre_size VARCHAR(50) NOT NULL,
+    core_size VARCHAR(50),
+    brand VARCHAR(50),
+    quality_grade VARCHAR(50),
+    tyre_type VARCHAR(50),
+    UNIQUE (tyre_size, core_size, brand, quality_grade)
+);
+```
+
+No duplicates allowed.
+
+---
+
+## tyre_specifications
+
+Separate from tyre_master (professional practice).
+
+```sql
+CREATE TABLE tyre_specifications (
+    tyre_id INTEGER PRIMARY KEY REFERENCES tyre_master(tyre_id),
+    core_target NUMERIC(8,2),
+    middle_target NUMERIC(8,2),
+    ct_target NUMERIC(8,2),
+    gum_target NUMERIC(8,2),
+    tread_target NUMERIC(8,2),
+    bead_required BOOLEAN
+);
+```
+
+Keeps master clean.
+
+---
+
+# 🏭 5️⃣ PRODUCTION PLAN DOMAIN
+
+## master_orders
+
+Header-level PI.
+
+```sql
+CREATE TABLE master_orders (
+    order_id SERIAL PRIMARY KEY,
+    pi_number VARCHAR(50) UNIQUE NOT NULL,
+    customer_id VARCHAR(50),
+    committed_date DATE,
+    priority_level INTEGER DEFAULT 3,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+## order_lines
+
+Each tyre line item.
+
+```sql
+CREATE TABLE order_lines (
+    line_id SERIAL PRIMARY KEY,
+    order_id INTEGER REFERENCES master_orders(order_id) ON DELETE CASCADE,
+    tyre_id INTEGER REFERENCES tyre_master(tyre_id),
+    ordered_qty INTEGER NOT NULL,
+    unit_price_inr NUMERIC(10,2),
+    status VARCHAR(20) DEFAULT 'OPEN'
+);
+```
+
+This separates order header from order details — professional ERP standard.
+
+---
+
+# 🏗 6️⃣ PC1 – BUILDING DOMAIN
+
+## pc1_build_log
+
+```sql
+CREATE TABLE pc1_build_log (
+    build_id SERIAL PRIMARY KEY,
+    order_line_id INTEGER REFERENCES order_lines(line_id),
+    tyre_id INTEGER REFERENCES tyre_master(tyre_id),
+    operator_id VARCHAR(50) REFERENCES users(user_id),
+    press_id INTEGER REFERENCES press_master(press_id),
+    daylight_no INTEGER,
+    shift CHAR(1),
+    green_weight NUMERIC(8,2),
+    remarks TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    status VARCHAR(20) DEFAULT 'BUILT'
+);
+```
+
+---
+
+## pc1_material_usage
+
+```sql
+CREATE TABLE pc1_material_usage (
+    id SERIAL PRIMARY KEY,
+    build_id INTEGER REFERENCES pc1_build_log(build_id) ON DELETE CASCADE,
+    batch_no VARCHAR(50),
+    material_type VARCHAR(50)
+);
+```
+
+Clean separation.
+
+---
+
+# 🔥 7️⃣ PC2 – CURING DOMAIN
+
+## pc2_curing_log
+
+```sql
+CREATE TABLE pc2_curing_log (
+    curing_id SERIAL PRIMARY KEY,
+    build_id INTEGER UNIQUE REFERENCES pc1_build_log(build_id),
+    serial_no VARCHAR(50) UNIQUE NOT NULL,
+    mould_id INTEGER REFERENCES mould_master(mould_id),
+    curing_temp INTEGER,
+    curing_pressure INTEGER,
+    curing_time INTEGER,
+    final_weight NUMERIC(8,2),
+    flash_weight NUMERIC(8,2),
+    cured_at TIMESTAMP DEFAULT NOW(),
+    status VARCHAR(20) DEFAULT 'CURED'
+);
+```
+
+Unique build_id ensures one curing per build.
+
+---
+
+# 🛡 8️⃣ PC3 – QC DOMAIN
+
+## pc3_qc_log
+
+```sql
+CREATE TABLE pc3_qc_log (
+    qc_id SERIAL PRIMARY KEY,
+    curing_id INTEGER UNIQUE REFERENCES pc2_curing_log(curing_id),
+    hardness_core_min INTEGER,
+    hardness_core_max INTEGER,
+    hardness_tread_min INTEGER,
+    hardness_tread_max INTEGER,
+    qc_status VARCHAR(20),
+    qc_remarks TEXT,
+    inspected_by VARCHAR(50) REFERENCES users(user_id),
+    inspected_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+## pc3_defects
+
+```sql
+CREATE TABLE pc3_defects (
+    id SERIAL PRIMARY KEY,
+    qc_id INTEGER REFERENCES pc3_qc_log(qc_id) ON DELETE CASCADE,
+    defect_id INTEGER REFERENCES defect_master(defect_id)
+);
+```
+
+Multi-defect system normalized.
+
+---
+
+# 🚚 9️⃣ DISPATCH DOMAIN
+
+## dispatch_header
+
+```sql
+CREATE TABLE dispatch_header (
+    dispatch_id SERIAL PRIMARY KEY,
+    customer_id VARCHAR(50),
+    dispatched_at TIMESTAMP DEFAULT NOW(),
+    created_by VARCHAR(50) REFERENCES users(user_id)
+);
+```
+
+---
+
+## dispatch_items
+
+```sql
+CREATE TABLE dispatch_items (
+    id SERIAL PRIMARY KEY,
+    dispatch_id INTEGER REFERENCES dispatch_header(dispatch_id) ON DELETE CASCADE,
+    serial_no VARCHAR(50) REFERENCES pc2_curing_log(serial_no)
+);
+```
+
+Serial-level traceability guaranteed.
+
+---
+
+# 🧪 10️⃣ LAB DOMAIN
+
+## raw_material_batches
+
+```sql
+CREATE TABLE raw_material_batches (
+    batch_no VARCHAR(50) PRIMARY KEY,
+    material_type VARCHAR(50),
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+## raw_material_qc_log
+
+```sql
+CREATE TABLE raw_material_qc_log (
+    id SERIAL PRIMARY KEY,
+    batch_no VARCHAR(50) REFERENCES raw_material_batches(batch_no),
+    status VARCHAR(20),
+    approved_by VARCHAR(50),
+    approved_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+History preserved.
+
+---
+
+# ⚡ 11️⃣ Indexing Strategy (Performance Critical)
+
+Add indexes on:
+
+```sql
+CREATE INDEX idx_build_created ON pc1_build_log(created_at);
+CREATE INDEX idx_curing_serial ON pc2_curing_log(serial_no);
+CREATE INDEX idx_qc_status ON pc3_qc_log(qc_status);
+CREATE INDEX idx_dispatch_date ON dispatch_header(dispatched_at);
+```
+
+---
+
+# 🧱 12️⃣ What This Redesign Fixes
+
+| Problem                 | Fixed     |
+| ----------------------- | --------- |
+| Duplicate tyre data     | ✔         |
+| Poor order structure    | ✔         |
+| No defect normalization | ✔         |
+| No foreign keys         | ✔         |
+| Weak auditability       | ✔         |
+| Hard joins              | Optimized |
+| Scaling risk            | Reduced   |
+
+---
+
+# 🧠 Professional Assessment
+
+After this redesign, your database becomes:
+
+> MES-grade structured relational system
+
+It is no longer Excel-style storage.
+
+It becomes production-grade.
+
+---
+
+

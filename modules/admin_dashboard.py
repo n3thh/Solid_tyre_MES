@@ -109,7 +109,7 @@ class AdminDashboard:
         if SmartOrderParser:
             SmartOrderParser(self.root)
         else:
-            messagebox.showerror("Error", "Parser module missing or python-docx is not installed.", parent=self.root)  
+            messagebox.showerror("Error", "Parser module missing or python-docx is not installed.",)  
 
     def on_tab_change(self, event):
         """Automatically refreshes data and clears inputs when switching tabs."""
@@ -151,7 +151,7 @@ class AdminDashboard:
         if not pwd: pwd = "1234" 
 
         if not uid or not name: 
-            return messagebox.showerror("Error", "Missing fields", parent=self.root)
+            return messagebox.showerror("Error", "Missing fields")
         
         q = """INSERT INTO users (user_id, full_name, role, password, is_active) 
                VALUES (%s, %s, %s, %s, TRUE) 
@@ -167,7 +167,7 @@ class AdminDashboard:
 
     def delete_user(self):
         sel = self.tree_users.selection()
-        if sel and messagebox.askyesno("Confirm", "Delete User?", parent=self.root):
+        if sel and messagebox.askyesno("Confirm", "Delete User?"):
             uid = self.tree_users.item(sel[0])['values'][0]
             DBManager.execute_query("UPDATE users SET is_active=FALSE WHERE user_id=%s", (uid,))
             self.load_users()
@@ -186,7 +186,7 @@ class AdminDashboard:
         count = 0
         for r in rows:
             if DBManager.execute_query("INSERT INTO raw_material_qc (batch_no, material_type, status) VALUES (%s, %s, %s) ON CONFLICT (batch_no) DO NOTHING", (r.get('BATCH_NO'), r.get('MATERIAL_TYPE'), r.get('STATUS', 'APPROVED'))): count += 1
-        messagebox.showinfo("Success", f"Uploaded {count} materials", parent=self.root); self.refresh_qc_list()
+        messagebox.showinfo("Success", f"Uploaded {count} materials"); self.refresh_qc_list()
 
     def refresh_qc_list(self): self._refresh_tree(self.tree_qc, "SELECT batch_no, material_type, status FROM raw_material_qc ORDER BY batch_no DESC LIMIT 50")
     def download_sample_qc(self): self._save_csv("Sample_Materials.csv", ["BATCH_NO", "MATERIAL_TYPE", "STATUS"], [["BATCH001", "RUBBER", "APPROVED"]])
@@ -372,9 +372,9 @@ class AdminDashboard:
             
             # Optional: Pop up a quick notification if the order is already partially done
             if prod_val > 0 and pending > 0:
-                messagebox.showinfo("Progress Update", f"Order in progress!\n\nTotal Required: {req}\nAlready Produced: {prod_val}\n\nTarget quantity auto-filled to remaining: {pending}", parent=self.root)
+                messagebox.showinfo("Progress Update", f"Order in progress!\n\nTotal Required: {req}\nAlready Produced: {prod_val}\n\nTarget quantity auto-filled to remaining: {pending}")
             elif pending == 0:
-                messagebox.showwarning("Order Complete", "Warning: This Master Order has already hit its required production target!", parent=self.root)
+                messagebox.showwarning("Order Complete", "Warning: This Master Order has already hit its required production target!")
 
     def load_catalog_sizes(self):
         res = DBManager.fetch_data("SELECT DISTINCT tyre_size FROM product_catalog WHERE is_active=TRUE ORDER BY tyre_size")
@@ -417,10 +417,10 @@ class AdminDashboard:
             qty = int(self.plan_qty.get().strip())
             target_wt = float(self.plan_wt.get().strip())
         except ValueError: 
-            return messagebox.showerror("Error", "Quantity and Target Weight must be numeric.", parent=self.root)
+            return messagebox.showerror("Error", "Quantity and Target Weight must be numeric.")
             
         if not press or not dl or not self.hidden_plan_data:
-            return messagebox.showerror("Error", "Please complete all fields (Order/Catalog, Press, Daylight).", parent=self.root)
+            return messagebox.showerror("Error", "Please complete all fields (Order/Catalog, Press, Daylight).")
 
         # --- GRAB THE ORDER ID (IF MTO) ---
         order_id = None
@@ -437,7 +437,7 @@ class AdminDashboard:
             
             if pct_diff > 15.0:
                 msg = f"⚠️ WEIGHT TOLERANCE ALERT\n\nEntered Weight: {target_wt} kg\nDatabase Baseline: {self.current_baseline_weight} kg\n\nThis is {pct_diff:.1f}% off standard! Are you absolutely sure you want to assign this?"
-                if not messagebox.askyesno("Confirm Deviation", msg, parent=self.root): return
+                if not messagebox.askyesno("Confirm Deviation", msg): return
             elif pct_diff > 0:
                 warning_note = f"\n(Note: Weight is {pct_diff:.1f}% off standard)"
 
@@ -451,14 +451,14 @@ class AdminDashboard:
         if DBManager.execute_query(q, (press, dl, self.hidden_plan_data['size'], self.hidden_plan_data['core'], self.hidden_plan_data['brand'], self.hidden_plan_data['qual'], target_wt, qty, order_id)):
             self.refresh_plan_list()
             self.plan_qty.delete(0, tk.END)
-            messagebox.showinfo("Success", f"{press} ({dl}) Assigned!{warning_note}", parent=self.root)
+            messagebox.showinfo("Success", f"{press} ({dl}) Assigned!{warning_note}")
 
     def delete_plan(self):
         sel = self.tree_plan.selection()
-        if not sel: return messagebox.showwarning("Warning", "Select a Press assignment to clear.", parent=self.root)
+        if not sel: return messagebox.showwarning("Warning", "Select a Press assignment to clear.")
         item = self.tree_plan.item(sel[0])['values']
         
-        if messagebox.askyesno("Confirm", f"Clear plan for {item[0]} ({item[1]})?", parent=self.root):
+        if messagebox.askyesno("Confirm", f"Clear plan for {item[0]} ({item[1]})?"):
             DBManager.execute_query("DELETE FROM production_plan WHERE press_id=%s AND daylight=%s", (item[0], item[1]))
             self.refresh_plan_list()
 
@@ -485,7 +485,7 @@ class AdminDashboard:
                 (r.get('PRESS'), r.get('DAYLIGHT'), r.get('TYRE_SIZE'), r.get('BRAND'), 
                  r.get('PATTERN'), r.get('QUALITY'), r.get('TYPE'), r.get('TYRE WEIGHT'), 
                  r.get('CORE_SIZE'), r.get('MOULD_ID'), req)): count += 1
-        messagebox.showinfo("Success", f"Uploaded {count} plans", parent=self.root); self.refresh_plan_list()
+        messagebox.showinfo("Success", f"Uploaded {count} plans"); self.refresh_plan_list()
 
     def refresh_plan_list(self): 
         self._refresh_tree(self.tree_plan, "SELECT press_id, daylight, tyre_size, quality, production_requirement FROM production_plan ORDER BY press_id, daylight")
@@ -609,24 +609,24 @@ class AdminDashboard:
         qual = self.cat_qual.get().strip().upper()
         
         try: wt = float(self.cat_wt.get().strip())
-        except ValueError: return messagebox.showerror("Error", "Baseline Weight must be a number.", parent=self.root)
+        except ValueError: return messagebox.showerror("Error", "Baseline Weight must be a number.")
             
         if not all([size, core, brand, qual]):
-            return messagebox.showerror("Error", "Please fill all text fields.", parent=self.root)
+            return messagebox.showerror("Error", "Please fill all text fields.")
             
         q = "INSERT INTO product_catalog (tyre_size, core_size, brand, quality, baseline_weight) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (tyre_size, core_size, brand, quality) DO UPDATE SET baseline_weight=EXCLUDED.baseline_weight"
         if DBManager.execute_query(q, (size, core, brand, qual, wt)):
             self.load_catalog()
             for ent in [self.cat_size, self.cat_core, self.cat_brand, self.cat_qual, self.cat_wt]:
                 ent.delete(0, tk.END)
-            messagebox.showinfo("Success", "Tyre added to Master Catalog.", parent=self.root)
+            messagebox.showinfo("Success", "Tyre added to Master Catalog.")
 
     def delete_catalog_item(self):
         sel = self.tree_cat.selection()
-        if not sel: return messagebox.showwarning("Warning", "Select a Tyre to delete.", parent=self.root)
+        if not sel: return messagebox.showwarning("Warning", "Select a Tyre to delete.")
         sku = self.tree_cat.item(sel[0])['values'][0]
         
-        if messagebox.askyesno("Confirm", f"Delete SKU {sku} from Catalog?", parent=self.root):
+        if messagebox.askyesno("Confirm", f"Delete SKU {sku} from Catalog?"):
             DBManager.execute_query("DELETE FROM product_catalog WHERE sku_id=%s", (sku,))
             self.load_catalog()
 
@@ -641,7 +641,7 @@ class AdminDashboard:
             q = "INSERT INTO product_catalog (tyre_size, core_size, brand, quality, baseline_weight) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (tyre_size, core_size, brand, quality) DO UPDATE SET baseline_weight=EXCLUDED.baseline_weight"
             if DBManager.execute_query(q, (r.get('TYRE_SIZE'), r.get('CORE_SIZE'), r.get('BRAND'), r.get('QUALITY'), wt)):
                 count += 1
-        messagebox.showinfo("Success", f"Uploaded/Updated {count} Tyres in Master Catalog", parent=self.root)
+        messagebox.showinfo("Success", f"Uploaded/Updated {count} Tyres in Master Catalog")
         self.load_catalog()
 
     def download_sample_catalog_csv(self):
@@ -662,10 +662,10 @@ class AdminDashboard:
         brand = self.mo_brand.get().strip(); qual = self.mo_qual.get().strip()
         
         try: qty = int(self.mo_qty.get().strip())
-        except ValueError: return messagebox.showerror("Error", "Required Quantity must be a number.", parent=self.root)
+        except ValueError: return messagebox.showerror("Error", "Required Quantity must be a number.")
             
         if not all([pi, cust, size, core, brand, qty]):
-            return messagebox.showerror("Error", "Please fill all required fields.", parent=self.root)
+            return messagebox.showerror("Error", "Please fill all required fields.")
             
         q = "INSERT INTO master_orders (pi_number, customer_name, tyre_size, core_size, brand, quality, req_qty) VALUES (%s, %s, %s, %s, %s, %s, %s)"
         if DBManager.execute_query(q, (pi, cust, size, core, brand, qual, qty)):
@@ -673,7 +673,7 @@ class AdminDashboard:
             # Clear fields after success
             for ent in [self.mo_pi, self.mo_cust, self.mo_size, self.mo_core, self.mo_brand, self.mo_qual, self.mo_qty]:
                 ent.delete(0, tk.END)
-            messagebox.showinfo("Success", "Order added to Master Book.", parent=self.root)
+            messagebox.showinfo("Success", "Order added to Master Book.")
 
     def upload_master_csv(self):
         rows = self._read_csv_file()
@@ -685,7 +685,7 @@ class AdminDashboard:
             q = "INSERT INTO master_orders (pi_number, customer_name, tyre_size, core_size, brand, quality, req_qty) VALUES (%s, %s, %s, %s, %s, %s, %s)"
             if DBManager.execute_query(q, (r.get('PI_NUMBER'), r.get('CUSTOMER'), r.get('SIZE'), r.get('CORE'), r.get('BRAND'), r.get('QUALITY'), req)):
                 count += 1
-        messagebox.showinfo("Success", f"Uploaded {count} Master Orders", parent=self.root)
+        messagebox.showinfo("Success", f"Uploaded {count} Master Orders")
         self.load_master_orders()
 
     def download_sample_master_csv(self):
@@ -722,7 +722,7 @@ class AdminDashboard:
                                        tread_pct=EXCLUDED.tread_pct, is_pob=EXCLUDED.is_pob""", 
                                        (r.get('GRADE'), get_f('CORE_%'), get_f('MID_%'), get_f('CT_%'), get_f('GUM_%'), get_f('TREAD_%'), is_pob_bool)):
                 count += 1
-        messagebox.showinfo("Success", f"Uploaded {count} specs", parent=self.root); self.refresh_spec_list()
+        messagebox.showinfo("Success", f"Uploaded {count} specs"); self.refresh_spec_list()
 
     def refresh_spec_list(self): self._refresh_tree(self.tree_spec, "SELECT grade, core_pct, mid_pct, ct_pct, gum_pct, tread_pct, is_pob FROM tyre_specs ORDER BY grade")
     
@@ -746,7 +746,7 @@ class AdminDashboard:
         for r in rows:
             if DBManager.execute_query("INSERT INTO bead_master (tyre_size, bead_size, bead_count, weight_per_bead) VALUES (%s, %s, %s, %s) ON CONFLICT (tyre_size) DO UPDATE SET bead_size=EXCLUDED.bead_size", 
                                        (r.get('TYRE_SIZE'), r.get('BEAD_SIZE'), r.get('BEAD_COUNT'), r.get('WEIGHT_PER_BEAD'))): count += 1
-        messagebox.showinfo("Success", f"Uploaded {count} beads", parent=self.root); self.refresh_bead_list()
+        messagebox.showinfo("Success", f"Uploaded {count} beads"); self.refresh_bead_list()
 
     def refresh_bead_list(self): self._refresh_tree(self.tree_bead, "SELECT tyre_size, bead_size, bead_count, weight_per_bead FROM bead_master ORDER BY tyre_size")
     def download_sample_bead(self): self._save_csv("Sample_Bead.csv", ["TYRE_SIZE", "BEAD_SIZE", "BEAD_COUNT", "WEIGHT_PER_BEAD"], [["12.00-20", "HEX-20", "2", "1.5"]])
@@ -766,7 +766,7 @@ class AdminDashboard:
         for r in rows:
             if DBManager.execute_query("INSERT INTO pc1_mould_mapping (mould_id, tyre_size, pattern) VALUES (%s, %s, %s) ON CONFLICT (mould_id) DO UPDATE SET tyre_size=EXCLUDED.tyre_size", 
                                        (r.get('MOULD_ID'), r.get('TYRE_SIZE'), r.get('PATTERN'))): count += 1
-        messagebox.showinfo("Success", f"Uploaded {count} moulds", parent=self.root); self.refresh_mould_list()
+        messagebox.showinfo("Success", f"Uploaded {count} moulds"); self.refresh_mould_list()
 
     def refresh_mould_list(self): self._refresh_tree(self.tree_mould, "SELECT mould_id, tyre_size, pattern FROM pc1_mould_mapping ORDER BY mould_id")
     def download_sample_mould(self): self._save_csv("Sample_Moulds.csv", ["MOULD_ID", "TYRE_SIZE", "PATTERN"], [["M101", "12.00-20", "LUG"]])
@@ -792,7 +792,7 @@ class AdminDashboard:
         for r in rows:
             if DBManager.execute_query("INSERT INTO qc_defects_master (defect_code, defect_name, defect_type, defect_reason) VALUES (%s, %s, %s, %s) ON CONFLICT (defect_code) DO UPDATE SET defect_name=EXCLUDED.defect_name", 
                                        (r.get('DEFECT_CODE'), r.get('DEFECT_NAME'), r.get('DEFECT_TYPE'), r.get('REASON'))): count += 1
-        messagebox.showinfo("Success", f"Uploaded {count} defects", parent=self.root); self.refresh_defect_list()
+        messagebox.showinfo("Success", f"Uploaded {count} defects"); self.refresh_defect_list()
 
     # ==========================================
     # --- 🎰 PRESS MASTER (WITH DAYLIGHT) ---

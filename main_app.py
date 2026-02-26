@@ -36,7 +36,9 @@ modules = {
     "PC4": ("modules.despatch", "DespatchApp"),
     "LAB": ("modules.lab", "LabQCApp"),
     "CRM": ("modules.crm", "CRMApp"),
-    "ADMIN": ("modules.admin_dashboard", "AdminDashboard")
+    "ADMIN": ("modules.admin_dashboard", "AdminDashboard"),
+    "DASH": ("modules.global_dashboard", "GlobalDashboard"),
+    "LOG": ("modules.production_log", "ProductionLog")
 }
 
 # Dynamically import and handle missing modules
@@ -60,6 +62,18 @@ class MainLauncher:
         self.user_map = {}
 
         self.setup_login_ui()
+        
+    def on_search_button_click(self):
+        user_input = search_entry_get() # Get text from your UI box
+    
+        # Call our new global search method
+        results = DBManager.search_global(user_input)
+    
+        if results:
+            # Clear your Treeview/Table and insert the results
+            update_table_ui(results)
+        else:
+            print("No matches found.")    
 
     def setup_login_ui(self):
         for widget in self.root.winfo_children(): widget.destroy()
@@ -157,15 +171,17 @@ class MainLauncher:
         f_grid = tk.Frame(self.root, bg=C_BG)
         f_grid.pack(expand=True)
 
-        # Card Config
+        # Card Config inside open_main_menu(self)
         stations = [
             ("🏗️", "PC1 - BUILDING", "#27AE60", self.launch_building, True),
             ("🔥", "PC2 - CURING", "#E67E22", self.launch_curing, True),
             ("🛡️", "PC3 - FINAL QC", "#2980B9", self.launch_qc, self.current_role in ["SUPERVISOR", "MANAGER", "ADMIN", "QC"]),
             ("🚚", "PC4 - DESPATCH", "#34495E", self.launch_despatch, self.current_role in ["LOGISTICS", "SUPERVISOR", "MANAGER", "ADMIN", "QC"]),
             ("🧪", "LAB - APPROVAL", "#8E44AD", self.launch_lab, self.current_role in ["QC", "SUPERVISOR", "MANAGER", "ADMIN"]),
-            ("💼", "CRM & SALES", "#D35400", self.launch_crm, self.current_role in ["MANAGER", "ADMIN", "SALES"]), # <--- ADD THIS LINE
-            ("⚙️", "ADMIN PANEL", "#34495E", self.launch_admin, self.current_role in ["MANAGER", "ADMIN"])
+            ("💼", "CRM & SALES", "#D35400", self.launch_crm, self.current_role in ["MANAGER", "ADMIN", "SALES"]),
+            ("📋", "PRODUCTION LOG", "#F39C12", self.launch_production_log, self.current_role in ["SUPERVISOR", "MANAGER", "ADMIN"]), # <--- ADDED
+            ("⚙️", "ADMIN PANEL", "#34495E", self.launch_admin, self.current_role in ["MANAGER", "ADMIN"]),
+            ("📊", "GLOBAL DASHBOARD", "#16A085", self.launch_dashboard, self.current_role in ["MANAGER", "ADMIN"]) 
         ]
 
         r, c = 0, 0
@@ -175,6 +191,8 @@ class MainLauncher:
                 c += 1
                 if c > 2:
                     c = 0; r += 1
+
+    def launch_dashboard(self): self._launch(GlobalDashboard, "DASH")                
 
     def create_modern_card(self, parent, icon, label, color, command, r, c):
         card = tk.Frame(parent, bg=C_CARD, highlightthickness=1, highlightbackground=color)
@@ -194,6 +212,8 @@ class MainLauncher:
     def launch_lab(self): self._launch(LabQCApp, "LAB", True)
     def launch_admin(self): self._launch(AdminDashboard, "ADMIN")
     def launch_crm(self): self._launch(CRMApp, "CRM", True)
+    def launch_production_log(self): 
+        self._launch(ProductionLog, "LOG")
 
     def _launch(self, app_class, name, pass_user=False):
         if app_class:
