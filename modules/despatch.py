@@ -36,27 +36,47 @@ class DespatchApp:
         self.load_dropdowns()
 
     def setup_ui(self):
-        # HEADER
+        # 1. HEADER (Remains static at the top)
         header = tk.Frame(self.root, bg=C_HEADER, height=70)
         header.pack(fill="x")
         tk.Label(header, text="🚚 PC4 - LOGISTICS & DESPATCH", font=("Segoe UI", 20, "bold"), bg=C_HEADER, fg="white").pack(pady=15)
 
-        # MAIN CONTENT
-        content = tk.Frame(self.root, bg=C_BG)
-        content.pack(fill="both", expand=True, padx=20, pady=20)
+        # 2. CREATE SCROLLABLE CONTAINER
+        # This container holds the canvas and the scrollbar
+        container = tk.Frame(self.root, bg=C_BG)
+        container.pack(fill="both", expand=True)
 
-        # ================= LEFT: ORDER BUILDER (HYBRID) =================
-        self.f_left = tk.Frame(content, bg=C_BG, width=500)
-        self.f_left.pack(side="left", fill="y", expand=False, padx=(0, 10))
+        canvas = tk.Canvas(container, bg=C_BG, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        
+        # This is the frame where ALL content now lives
+        scrollable_content = tk.Frame(canvas, bg=C_BG)
+
+        # Update scrollregion when content changes size
+        scrollable_content.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_content, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Bind mouse wheel for easier navigation
+        self.root.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # ================= LEFT: ORDER BUILDER (Inside scrollable_content) =================
+        self.f_left = tk.Frame(scrollable_content, bg=C_BG, width=500)
+        self.f_left.pack(side="left", fill="y", expand=False, padx=(20, 10), pady=20)
         
         card_order = self.create_card(self.f_left, "1. BUILD OR LOAD ORDER")
         
-        # 1. CUSTOMER NAME (Required for Manifest)
         tk.Label(card_order, text="Customer Name:", bg=C_CARD, font=("Segoe UI", 10, "bold")).pack(anchor="w")
         self.ent_cust = tk.Entry(card_order, textvariable=self.var_customer, font=("Segoe UI", 12), bg="#EAF2F8")
         self.ent_cust.pack(fill="x", pady=(0, 10))
 
-        # 2. OPTION A: LOAD FROM PI
         f_pi = tk.LabelFrame(card_order, text=" OPTION A: Load Master PI ", bg=C_CARD, font=("Segoe UI", 9, "bold"), padx=10, pady=10)
         f_pi.pack(fill="x", pady=5)
         self.combo_pi = ttk.Combobox(f_pi, font=("Segoe UI", 11), state="readonly")
@@ -64,13 +84,10 @@ class DespatchApp:
         self.btn_load_pi = tk.Button(f_pi, text="⬇️ LOAD PI DETAILS", command=self.load_selected_order, bg="#34495E", fg="white", font=("Segoe UI", 9, "bold"))
         self.btn_load_pi.pack(fill="x")
 
-        # 3. OPTION B: ADD MANUAL ITEM (Cascading)
         f_man = tk.LabelFrame(card_order, text=" OPTION B: Add Local/Manual Item ", bg=C_CARD, font=("Segoe UI", 9, "bold"), padx=10, pady=10)
         f_man.pack(fill="x", pady=5)
         
-        # We need a var for Core now
         if not hasattr(self, 'var_core'): self.var_core = tk.StringVar()
-
         self.create_input_row(f_man, "Tyre Size:", self.var_size, 0)
         self.create_input_row(f_man, "Core Size:", self.var_core, 1)
         self.create_input_row(f_man, "Brand:", self.var_brand, 2)
@@ -82,25 +99,18 @@ class DespatchApp:
         self.btn_add = tk.Button(f_man, text="➕ ADD TO LIST", command=self.add_manual_item, bg="#27AE60", fg="white", font=("Segoe UI", 9, "bold"))
         self.btn_add.grid(row=4, column=1, sticky="e", pady=5)
 
-        # 4. ORDER GRID
         cols_o = ("Size", "Brand", "Grade", "Req", "Scan")
         self.tree_order = ttk.Treeview(card_order, columns=cols_o, show="headings", height=6)
-        self.tree_order.heading("Size", text="Size"); self.tree_order.column("Size", width=120)
-        self.tree_order.heading("Brand", text="Brand"); self.tree_order.column("Brand", width=100)
-        self.tree_order.heading("Grade", text="Grade"); self.tree_order.column("Grade", width=90)
-        self.tree_order.heading("Req", text="Req"); self.tree_order.column("Req", width=50, anchor="center")
-        self.tree_order.heading("Scan", text="Scan"); self.tree_order.column("Scan", width=50, anchor="center")
+        for c in cols_o: self.tree_order.heading(c, text=c)
+        self.tree_order.column("Req", width=50, anchor="center"); self.tree_order.column("Scan", width=50, anchor="center")
         
-        # Create and pack the button FIRST, locking it to the bottom
         self.btn_lock = tk.Button(card_order, text="🔒 LOCK ORDER & START SCANNING", command=self.start_scanning, bg=C_WARN, fg="white", font=("Segoe UI", 12, "bold"), pady=5)
         self.btn_lock.pack(side="bottom", fill="x", pady=(0, 10))
-
-        # Pack the Treeview SECOND, so it takes the remaining space above the button
         self.tree_order.pack(side="top", fill="both", expand=True, pady=(10, 5))
 
-        # ================= RIGHT: SCANNER QUEUE =================
-        self.f_right = tk.Frame(content, bg=C_BG)
-        self.f_right.pack(side="right", fill="both", expand=True, padx=(10, 0))
+        # ================= RIGHT: SCANNER QUEUE (Inside scrollable_content) =================
+        self.f_right = tk.Frame(scrollable_content, bg=C_BG)
+        self.f_right.pack(side="right", fill="both", expand=True, padx=(10, 20), pady=20)
 
         card_scan = self.create_card(self.f_right, "2. SCAN & VERIFY")
         
@@ -111,23 +121,19 @@ class DespatchApp:
         self.ent_scan.pack(fill="x", pady=10, padx=50)
         self.ent_scan.bind("<Return>", self.process_scan)
 
-        tk.Label(card_scan, text="Successfully Despatched Tyres:", bg=C_CARD, font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(15, 5))
-        
         cols_s = ("Time", "Serial No", "Size", "Grade")
-        self.tree_scan = ttk.Treeview(card_scan, columns=cols_s, show="headings", height=15)
+        self.tree_scan = ttk.Treeview(card_scan, columns=cols_s, show="headings", height=12)
         for c in cols_s: self.tree_scan.heading(c, text=c)
-        self.tree_scan.column("Time", width=100); self.tree_scan.column("Serial No", width=150)
         self.tree_scan.pack(fill="both", expand=True)
         
-        # Action Buttons Frame
         f_actions = tk.Frame(card_scan, bg=C_CARD)
         f_actions.pack(fill="x", pady=10)
         
-        tk.Button(f_actions, text="✅ FINISH & CLOSE ORDER", command=self.finish_despatch, bg="#2980B9", fg="white", font=("Segoe UI", 10, "bold")).pack(side="left", padx=5)
+        tk.Button(f_actions, text="✅ FINISH & CLOSE", command=self.finish_despatch, bg="#2980B9", fg="white", font=("Segoe UI", 10, "bold")).pack(side="left", padx=5)
         tk.Button(f_actions, text="🔄 CANCEL", command=self.reset_system, bg=C_ERR, fg="white", font=("Segoe UI", 10)).pack(side="left", padx=5)
         tk.Button(f_actions, text="🌐 EXPORT HTML", command=self.export_html, bg="#8E44AD", fg="white", font=("Segoe UI", 10, "bold")).pack(side="right", padx=5)
         tk.Button(f_actions, text="📄 EXPORT CSV", command=self.export_csv, bg="#27AE60", fg="white", font=("Segoe UI", 10, "bold")).pack(side="right", padx=5)
-
+        
 # --- CASCADING DROPDOWNS (From Product Catalog) ---
     def load_catalog_sizes(self):
         res = DBManager.fetch_data("SELECT DISTINCT tyre_size FROM product_catalog WHERE is_active=TRUE ORDER BY tyre_size")

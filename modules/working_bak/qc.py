@@ -7,7 +7,7 @@ import csv
 from db_manager import DBManager
 
 # ================= CONFIGURATION =================
-LINUX_PRINTER_PATH = "/dev/usb/lp0" 
+LINUX_PRINTER_PATH = "/dev/usb/lp4" 
 
 # COLOR PALETTE (Modern & Colorful)
 C_BG = "#F4F6F7"       # Light Grey Background
@@ -24,8 +24,11 @@ class FinalQCApp:
         self.root = root
         self.root.title(f"PC3 | Final Quality Control (User: {current_user})")
         self.root.geometry("1300x850")
+
+        # --- ADD THIS LINE ---
+        self.current_user = current_user 
         
-        # --- VARIABLES ---
+        # --- REST OF YOUR VARIABLES ---
         self.var_scan = tk.StringVar()
         self.info_status_msg = tk.StringVar(value="Ready to Scan")
         

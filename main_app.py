@@ -2,6 +2,12 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import os
 import sys
+try:
+    from modules.building_touch import PC1TouchApp # The New Touch UI
+    from modules.curing import CuringApp
+    # ... other imports
+except ImportError as e:
+    print(f"Module Import Error: {e}")
 
 # This finds the absolute path whether running as a script or a frozen exe
 if getattr(sys, 'frozen', False):
@@ -205,7 +211,7 @@ class MainLauncher:
         tk.Frame(card, bg=color, height=5).pack(fill="x", side="bottom")
 
     # --- LAUNCHERS ---
-    def launch_building(self): self._launch(PC1SmartApp, "PC1")
+    # def launch_building(self): self._launch(PC1SmartApp, "PC1")
     def launch_curing(self): self._launch(CuringApp, "PC2", True)
     def launch_qc(self): self._launch(FinalQCApp, "PC3", True)
     def launch_despatch(self): self._launch(DespatchApp, "PC4", True)
@@ -214,15 +220,23 @@ class MainLauncher:
     def launch_crm(self): self._launch(CRMApp, "CRM", True)
     def launch_production_log(self): 
         self._launch(ProductionLog, "LOG")
+    def launch_building(self): 
+        self._launch(PC1TouchApp, "PC1", pass_user=True)    
 
     def _launch(self, app_class, name, pass_user=False):
         if app_class:
             win = tk.Toplevel(self.root)
-            if pass_user: app_class(win, current_user=self.current_user_name)
-            else: app_class(win)
+            
+            # Touch optimization for PC1
+            if name == "PC1":
+                win.attributes('-fullscreen', True) if sys.platform != "win32" else win.state('zoomed')
+            
+            if pass_user: 
+                app_class(win, current_user=self.current_user_name)
+            else: 
+                app_class(win)
         else:
             messagebox.showerror("Error", f"{name} Module missing or corrupted!", parent=self.root)
-
 if __name__ == "__main__":
     root = tk.Tk()
     
