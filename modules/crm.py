@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import datetime
 import csv
+import math
 from db_manager import DBManager
 
 # ================= CONFIGURATION =================
@@ -102,11 +103,21 @@ class CRMApp:
         self.tab_orders = tk.Frame(nb, bg=C_BG); nb.add(self.tab_orders, text="  📦 MASTER ORDERS  ")
         self.tab_cust = tk.Frame(nb, bg=C_BG); nb.add(self.tab_cust, text="  🏢 CUSTOMERS  ")
         self.tab_curr = tk.Frame(nb, bg=C_BG); nb.add(self.tab_curr, text="  💱 CURRENCY  ")
+        self.tab_prog = tk.Frame(nb, bg=C_BG)
+        nb.add(self.tab_prog, text="  📊 ORDER PROGRESS  ")
+        # Create an Alert Button that shows the count of lagging orders
+        self.btn_alerts = tk.Button(header, text="🚨 0 ALERTS", command=self.show_notification_center, 
+                            bg="#C0392B", fg="white", font=("Segoe UI", 10, "bold"), padx=10)
+        self.btn_alerts.pack(side="right", padx=20, pady=15)
 
+        # Start a background timer to refresh alerts every 60 seconds
+        self.update_alert_count()
+        
         self.build_dash_tab()
         self.build_orders_tab()
         self.build_cust_tab()
         self.build_curr_tab()
+        self.build_progress_tab()
         
         nb.bind("<<NotebookTabChanged>>", self.on_tab_change)
 
@@ -257,11 +268,12 @@ class CRMApp:
         sel = self.tree_ord.selection()
         if not sel: return
         
-        pi = self.tree_ord.item(sel[0])['values'][0]
+        pi = str(self.tree_ord.item(sel[0])['values'][0])
         
+        # Use %s so the DB driver adds the quotes for you
         q = """SELECT pi_number, customer_name, tyre_size, core_size, brand, quality, tyre_type, pattern, 
-                      req_qty, unit_price_foreign, committed_date, priority_level 
-               FROM master_orders WHERE pi_number = %s"""
+                    req_qty, unit_price_foreign, committed_date, priority_level 
+            FROM master_orders WHERE pi_number = %s"""
         res = DBManager.fetch_data(q, (pi,))
         
         if res:
@@ -461,10 +473,11 @@ class CRMApp:
         self.tree_curr = ttk.Treeview(card, columns=cols, show="headings", height=5)
         for c in cols: self.tree_curr.heading(c, text=c)
         self.tree_curr.pack(fill="x", pady=20)
-
+        
+       
     def update_currency(self):
         try: rate = float(self.cur_rate_usd.get())
-        except: return messagebox.showerror("Error", "Invalid Rate")
+        except: return messagebox.showerror("Error", "Invalid Rate",parent=self.root)
         
         q = "UPDATE currency_rates SET rate_to_inr=%s, last_updated=NOW() WHERE currency_code='USD'"
         if DBManager.execute_query(q, (rate,)):
@@ -481,6 +494,201 @@ class CRMApp:
                 self.exchange_rates[r[0]] = float(r[1])
                 if r[0] == 'USD': self.cur_rate_usd.set(str(r[1]))
 
+    def build_progress_tab(self):
+        """Creates the Progress Tracking tab with synchronized headers."""
+        search_f = tk.Frame(self.tab_prog, bg=C_BG, pady=15)
+        search_f.pack(fill="x")
+
+        tk.Label(search_f, text="🔍 SEARCH BY PI, CUSTOMER, OR BRAND:", font=("Segoe UI", 10, "bold"), 
+                bg=C_BG, fg=C_TEXT).pack(side="left", padx=(20, 10))
+
+        self.prog_search_var = tk.StringVar()
+        ent = tk.Entry(search_f, textvariable=self.prog_search_var, font=("Segoe UI", 12), width=35)
+        ent.pack(side="left", padx=5)
+        ent.bind("<Return>", lambda e: self.update_progress_table())
+
+        # Action Buttons
+        tk.Button(search_f, text="CHECK PROGRESS", command=self.update_progress_table, 
+                bg=C_HEADER, fg="white", font=("Segoe UI", 10, "bold"), padx=15).pack(side="left", padx=10)
+        
+        # This button triggers the 'Priority Request' to the factory
+        tk.Button(search_f, text="⚡ BOOST PRIORITY", command=self.boost_selected_order, 
+                bg="#F1C40F", fg="black", font=("Segoe UI", 10, "bold"), padx=15).pack(side="left", padx=10)
+
+        card = self.create_card(self.tab_prog, "Real-time Order Status & Predictions")
+    
+        # 9 COLUMNS: Visual and Data-driven
+        cols = ("PI Number", "Brand", "Tyre Size", "Status", "Order Qty", "Finished", "Progress Bar", "Projected Finish", "Deadline")
+    
+        self.tree_prog = ttk.Treeview(card, columns=cols, show="headings", height=20)
+        for c in cols:
+            self.tree_prog.heading(c, text=c)
+            if "Progress" in c: w = 180
+            elif "Projected" in c: w = 150
+            elif "Tyre Size" in c: w = 130
+            else: w = 100
+            self.tree_prog.column(c, width=w, anchor="center")
+    
+        self.tree_prog.pack(side="left", fill="both", expand=True)
+        sb = ttk.Scrollbar(card, orient="vertical", command=self.tree_prog.yview)
+        self.tree_prog.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+
+    def boost_selected_order(self):
+        """Manually increases the priority of a selected order."""
+        selected_item = self.tree_prog.selection()
+        if not selected_item:
+            messagebox.showwarning("Selection Required", "Please select an order to boost.", parent=self.root)
+            return
+
+        # Get the PI Number from the selected row
+        pi_number = self.tree_prog.item(selected_item[0])['values'][0]
+
+        # Update the order status to "URGENT" in the database
+        # This will make it appear in red in the dashboard
+        q = "UPDATE master_orders SET status='URGENT' WHERE pi_number=%s"
+        if DBManager.execute_query(q, (pi_number,)):
+            messagebox.showinfo("Boosted", f"Order {pi_number} has been marked as URGENT!", parent=self.root)
+            self.update_progress_table() # Refresh the table to show the change
+
+    def update_progress_table(self):
+        
+        search = self.prog_search_var.get().strip()
+        if not search: return messagebox.showwarning("Input Required", "Enter search term")
+        
+        for i in self.tree_prog.get_children(): self.tree_prog.delete(i)
+
+        # SQL calculates daily rate based on actual PC1 Building timestamps
+        q = """
+            SELECT 
+                mo.pi_number, mo.brand, mo.tyre_size, mo.req_qty,
+                COALESCE((SELECT COUNT(*) FROM pc1_building pb WHERE (TRIM(pb.pi_number) = TRIM(mo.pi_number) OR (TRIM(pb.brand) = TRIM(mo.brand) AND TRIM(pb.tyre_size) = TRIM(mo.tyre_size))) AND pb.status = 'COMPLETED'), 0) as total_fin,
+                COALESCE((SELECT COUNT(*) FROM pc1_building pb WHERE (TRIM(pb.pi_number) = TRIM(mo.pi_number) OR (TRIM(pb.brand) = TRIM(mo.brand) AND TRIM(pb.tyre_size) = TRIM(mo.tyre_size))) AND pb.status = 'COMPLETED' AND pb.created_at >= NOW() - INTERVAL '24 HOURS'), 0) as daily_rate,
+                mo.committed_date, mo.priority_level
+            FROM master_orders mo
+            WHERE mo.pi_number ILIKE %s OR mo.brand ILIKE %s OR mo.customer_name ILIKE %s
+        """
+        
+        term = f"%{search}%"
+        res = DBManager.fetch_data(q, (term, term, term))
+        today = datetime.date.today()
+
+        if not res:
+            return messagebox.showinfo("No Results", f"No records found for: {search}")
+
+        for r in res:
+            pi, brand, size, o_qty, f_qty, daily_rate, deadline, priority = r
+            o_qty, f_qty, daily_rate = int(o_qty or 0), int(f_qty or 0), int(daily_rate or 0)
+            balance = o_qty - f_qty
+            
+            # --- PREDICTION LOGIC ---
+            if f_qty >= o_qty:
+                projected = "✅ COMPLETE"
+            elif daily_rate > 0:
+                days_needed = math.ceil(balance / daily_rate)
+                proj_date = today + datetime.timedelta(days=days_needed)
+                projected = proj_date.strftime("%Y-%m-%d")
+            else:
+                projected = "🛑 NO SPEED DATA"
+
+            # --- VISUALS ---
+            percent = int((f_qty / o_qty) * 100) if o_qty > 0 else 0
+            progress_display = f"{'🟩' * (percent // 10)}{'⬜' * (10 - (percent // 10))} {percent}%"
+            
+            status = "✅ READY" if percent >= 100 else "⏳ IN PROG"
+            tag = 'complete' if percent >= 100 else 'normal'
+
+            # Smart Tag: Check if we will miss the deadline
+            if projected not in ["✅ COMPLETE", "🛑 NO SPEED DATA"]:
+                proj_dt_obj = datetime.datetime.strptime(projected, "%Y-%m-%d").date()
+                if deadline and proj_dt_obj > deadline:
+                    tag = 'danger'
+                    status = "⚠️ LAGGING"
+            
+            if priority == 1 and percent < 100:
+                tag = 'urgent'
+
+            # INSERT: Matches the 9 columns exactly
+            self.tree_prog.insert("", "end", 
+                                values=(pi, brand, size, status, o_qty, f_qty, progress_display, projected, deadline),
+                                tags=(tag,))
+
+        # Final Styling
+        self.tree_prog.tag_configure('complete', background='#E8F8F5', foreground='#1B5E20')
+        self.tree_prog.tag_configure('urgent', background='#FFF9C4', foreground='#F57F17', font=("Segoe UI", 9, "bold"))
+        self.tree_prog.tag_configure('danger', background='#FFEBEE', foreground='#B71C1C', font=("Segoe UI", 9, "bold"))
+
+    def get_lagging_summary(self):
+        """Scans all active orders to find health risks."""
+        q = """
+            SELECT 
+                mo.pi_number, mo.customer_name, mo.committed_date, mo.req_qty,
+                -- Total Finished
+                COALESCE((SELECT COUNT(*) FROM pc1_building pb 
+                          WHERE (TRIM(pb.pi_number) = TRIM(mo.pi_number) OR (TRIM(pb.brand) = TRIM(mo.brand) AND TRIM(pb.tyre_size) = TRIM(mo.tyre_size))) 
+                          AND pb.status = 'COMPLETED'), 0) as total_fin,
+                -- Production speed (last 24h)
+                COALESCE((SELECT COUNT(*) FROM pc1_building pb 
+                          WHERE (TRIM(pb.pi_number) = TRIM(mo.pi_number) OR (TRIM(pb.brand) = TRIM(mo.brand) AND TRIM(pb.tyre_size) = TRIM(mo.tyre_size))) 
+                          AND pb.status = 'COMPLETED' AND pb.created_at >= NOW() - INTERVAL '24 HOURS'), 0) as daily_rate
+            FROM master_orders mo
+            WHERE mo.status != 'CLOSED'
+        """
+        res = DBManager.fetch_data(q)
+        lagging_orders = []
+        today = datetime.date.today()
+
+        if res:
+            for r in res:
+                pi, cust, deadline, o_qty, f_qty, daily_rate = r
+                balance = o_qty - f_qty
+                
+                if f_qty < o_qty and daily_rate > 0:
+                    days_needed = math.ceil(balance / daily_rate)
+                    proj_date = today + datetime.timedelta(days=days_needed)
+                    
+                    # If projected finish is past the promised date, it's a risk
+                    if deadline and proj_date > deadline:
+                        lagging_orders.append({
+                            "pi": pi, "cust": cust, "delay": (proj_date - deadline).days
+                        })
+                elif daily_rate == 0 and f_qty < o_qty:
+                    # Risk: No work being done on an open order
+                    lagging_orders.append({"pi": pi, "cust": cust, "delay": "STALLED"})
+        
+        return lagging_orders    
+
+    def show_notification_center(self):
+        """Displays a list of all orders that need immediate attention."""
+        alerts = self.get_lagging_summary()
+        
+        win = tk.Toplevel(self.root)
+        win.title("🚨 CRITICAL ALERTS: LAGGING ORDERS")
+        win.geometry("500x400")
+        win.configure(bg="#FDF2F4") # Light red warning background
+        
+        tk.Label(win, text="ORDERS AT RISK OF DELAY", font=("Segoe UI", 12, "bold"), 
+                 bg="#FDF2F4", fg="#B71C1C").pack(pady=10)
+        
+        if not alerts:
+            tk.Label(win, text="✅ All production is on track!", bg="#FDF2F4").pack(pady=20)
+            return
+
+        frame = tk.Frame(win, bg="white", bd=1, relief="solid")
+        frame.pack(fill="both", expand=True, padx=20, pady=10)
+        
+        for a in alerts:
+            row = tk.Frame(frame, bg="white", pady=5)
+            row.pack(fill="x", padx=10)
+            
+            msg = f"PI: {a['pi']} | {a['cust']}"
+            tk.Label(row, text=msg, bg="white", font=("Segoe UI", 9, "bold")).pack(side="left")
+            
+            detail = f"Delayed by {a['delay']} days" if isinstance(a['delay'], int) else "PRODUCTION STOPPED"
+            tk.Label(row, text=detail, bg="white", fg="#E74C3C").pack(side="right")
+            
+            tk.Frame(frame, height=1, bg="#F2F3F4").pack(fill="x") # Separator line    
+        
     # ================= HELPERS =================
     def load_initial_data(self):
         self.load_customers()
@@ -490,8 +698,14 @@ class CRMApp:
 
     def on_tab_change(self, event):
         tab = event.widget.tab(event.widget.select(), "text")
-        if "DASHBOARD" in tab: self.refresh_dashboard()
-        elif "ORDERS" in tab: self.refresh_orders()
+        if "DASHBOARD" in tab: 
+            self.refresh_dashboard()
+        elif "ORDERS" in tab: 
+            self.refresh_orders()
+        elif "PROGRESS" in tab: 
+            # Auto-refresh the table if a search term already exists
+            if self.prog_search_var.get():
+                self.update_progress_table()
 
     def create_card(self, parent, title): 
         f = tk.Frame(parent, bg=C_CARD, bd=1, relief="solid", padx=15, pady=15); f.pack(fill="both", expand=True, pady=10, padx=10)
@@ -519,6 +733,16 @@ class CRMApp:
             with open(path, 'w', newline='') as f:
                 w = csv.writer(f); w.writerow(header); w.writerows(rows)
             messagebox.showinfo("Success", "File Saved",parent=self.root)
+
+    def update_alert_count(self):
+        """Automatically updates the alert badge every minute."""
+        alerts = self.get_lagging_summary()
+        count = len(alerts)
+        self.btn_alerts.config(text=f"🚨 {count} ALERTS")
+        # Blink the button if there are critical alerts
+        color = "#C0392B" if count > 0 else "#34495E"
+        self.btn_alerts.config(bg=color)
+        self.root.after(60000, self.update_alert_count) # Refresh every 60 seconds        
 
 if __name__ == "__main__":
     root = tk.Tk(); app = CRMApp(root); root.mainloop()

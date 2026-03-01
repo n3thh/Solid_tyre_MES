@@ -156,6 +156,14 @@ If you want to take an immediate backup of your `tyre_factory_db`, run this comm
 # -f: Output file path
 pg_dump -U postgres -d tyre_factory_db -f ~/Documents/factory_backup_$(date +%Y-%m-%d).sql
 
+# 1. Create the SQL dump as the database owner into a public temp folder
+sudo -u postgres pg_dump tyre_factory_db > /tmp/factory_backup.sql
+
+# 2. Move it to your Documents with a clear date-stamped name
+sudo mv /tmp/factory_backup.sql ~/Documents/tyre_factory_db_backup_$(date +%Y-%m-%d).sql  # worked well
+
+# 3. Take ownership of the file so you can copy it to GitHub or a USB drive
+sudo chown k3shu:k3shu ~/Documents/tyre_factory_db_backup_*.sql
 ```
 
 *Note: It may ask for your database password.*

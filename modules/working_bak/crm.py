@@ -102,11 +102,13 @@ class CRMApp:
         self.tab_orders = tk.Frame(nb, bg=C_BG); nb.add(self.tab_orders, text="  📦 MASTER ORDERS  ")
         self.tab_cust = tk.Frame(nb, bg=C_BG); nb.add(self.tab_cust, text="  🏢 CUSTOMERS  ")
         self.tab_curr = tk.Frame(nb, bg=C_BG); nb.add(self.tab_curr, text="  💱 CURRENCY  ")
-
+        self.tab_prog = tk.Frame(nb, bg=C_BG)
+        nb.add(self.tab_prog, text="  📊 ORDER PROGRESS  ")
         self.build_dash_tab()
         self.build_orders_tab()
         self.build_cust_tab()
         self.build_curr_tab()
+        self.build_progress_tab()
         
         nb.bind("<<NotebookTabChanged>>", self.on_tab_change)
 
@@ -257,11 +259,12 @@ class CRMApp:
         sel = self.tree_ord.selection()
         if not sel: return
         
-        pi = self.tree_ord.item(sel[0])['values'][0]
+        pi = str(self.tree_ord.item(sel[0])['values'][0])
         
+        # Use %s so the DB driver adds the quotes for you
         q = """SELECT pi_number, customer_name, tyre_size, core_size, brand, quality, tyre_type, pattern, 
-                      req_qty, unit_price_foreign, committed_date, priority_level 
-               FROM master_orders WHERE pi_number = %s"""
+                    req_qty, unit_price_foreign, committed_date, priority_level 
+            FROM master_orders WHERE pi_number = %s"""
         res = DBManager.fetch_data(q, (pi,))
         
         if res:
@@ -461,10 +464,11 @@ class CRMApp:
         self.tree_curr = ttk.Treeview(card, columns=cols, show="headings", height=5)
         for c in cols: self.tree_curr.heading(c, text=c)
         self.tree_curr.pack(fill="x", pady=20)
-
+        
+       
     def update_currency(self):
         try: rate = float(self.cur_rate_usd.get())
-        except: return messagebox.showerror("Error", "Invalid Rate")
+        except: return messagebox.showerror("Error", "Invalid Rate",parent=self.root)
         
         q = "UPDATE currency_rates SET rate_to_inr=%s, last_updated=NOW() WHERE currency_code='USD'"
         if DBManager.execute_query(q, (rate,)):
@@ -481,6 +485,86 @@ class CRMApp:
                 self.exchange_rates[r[0]] = float(r[1])
                 if r[0] == 'USD': self.cur_rate_usd.set(str(r[1]))
 
+    def build_progress_tab(self):
+        """Creates the Progress Tracking tab with a Customer/PI search box."""
+        # --- Search Bar ---
+        search_f = tk.Frame(self.tab_prog, bg=C_BG, pady=15)
+        search_f.pack(fill="x")
+        
+        tk.Label(search_f, text="🔍 SEARCH BY CUSTOMER OR PI #:", font=("Segoe UI", 10, "bold"), 
+             bg=C_BG, fg=C_TEXT).pack(side="left", padx=(20, 10))
+    
+        self.prog_search_var = tk.StringVar()
+        ent = tk.Entry(search_f, textvariable=self.prog_search_var, font=("Segoe UI", 12), width=35)
+        ent.pack(side="left", padx=5)
+        ent.bind("<Return>", lambda e: self.update_progress_table()) # Press Enter to search
+
+        tk.Button(search_f, text="CHECK PROGRESS", command=self.update_progress_table, 
+                bg=C_HEADER, fg="white", font=("Segoe UI", 10, "bold"), padx=15).pack(side="left", padx=10)
+
+        # --- Progress Table ---
+        card = self.create_card(self.tab_prog, "Real-time Production Status per Order")
+        cols = ("Tyre Size", "Core Size", "Pattern", "Type", "Brand", "Quality", "Order Qty", "Finished", "Balance")
+        
+        self.tree_prog = ttk.Treeview(card, columns=cols, show="headings", height=20)
+        for c in cols:
+            self.tree_prog.heading(c, text=c)
+            self.tree_prog.column(c, width=110, anchor="center")
+        
+        self.tree_prog.pack(side="left", fill="both", expand=True)
+        
+        sb = ttk.Scrollbar(card, orient="vertical", command=self.tree_prog.yview)
+        self.tree_prog.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")            
+
+    def update_progress_table(self):
+        """Search by PI Number, Brand, or partial Customer Name."""
+        search = self.prog_search_var.get().strip()
+        if not search: 
+            return messagebox.showwarning("Input Required", "Please enter a Search Term")
+        
+        for i in self.tree_prog.get_children(): self.tree_prog.delete(i)
+
+        # UPDATED SQL: Now includes mo.customer_name in the search
+        q = """
+            SELECT 
+                mo.tyre_size, mo.core_size, mo.pattern, mo.tyre_type, mo.brand, mo.quality,
+                mo.req_qty as total_ordered,
+                COALESCE((
+                    SELECT COUNT(*) FROM pc1_building pb 
+                    WHERE (TRIM(pb.pi_number) = TRIM(mo.pi_number) 
+                        OR (TRIM(pb.brand) = TRIM(mo.brand) AND TRIM(pb.tyre_size) = TRIM(mo.tyre_size)))
+                    AND pb.status = 'COMPLETED'
+                ), 0) as finished_qty
+            FROM master_orders mo
+            WHERE mo.pi_number ILIKE %s 
+            OR mo.brand ILIKE %s 
+            OR mo.customer_name ILIKE %s
+        """
+        
+        # We apply the partial search (%) to the term once and pass it 3 times
+        term = f"%{search}%"
+        res = DBManager.fetch_data(q, (term, term, term))
+        
+        if not res:
+            return messagebox.showinfo("No Results", f"No records found for: {search}")
+
+        for r in res:
+            size, core, pat, t_type, brand, qual, o_qty, f_qty = r
+            
+            o_qty = int(o_qty or 0)
+            f_qty = int(f_qty or 0)
+            balance = o_qty - f_qty
+            
+            tag = 'done' if balance <= 0 else 'pending'
+            
+            self.tree_prog.insert("", "end", 
+                                values=(size, core, pat, t_type, brand, qual, o_qty, f_qty, balance), 
+                                tags=(tag,))
+
+        self.tree_prog.tag_configure('done', background='#E8F8F5')
+        self.tree_prog.tag_configure('pending', background='#FEF9E7')
+
     # ================= HELPERS =================
     def load_initial_data(self):
         self.load_customers()
@@ -490,8 +574,14 @@ class CRMApp:
 
     def on_tab_change(self, event):
         tab = event.widget.tab(event.widget.select(), "text")
-        if "DASHBOARD" in tab: self.refresh_dashboard()
-        elif "ORDERS" in tab: self.refresh_orders()
+        if "DASHBOARD" in tab: 
+            self.refresh_dashboard()
+        elif "ORDERS" in tab: 
+            self.refresh_orders()
+        elif "PROGRESS" in tab: 
+            # Auto-refresh the table if a search term already exists
+            if self.prog_search_var.get():
+                self.update_progress_table()
 
     def create_card(self, parent, title): 
         f = tk.Frame(parent, bg=C_CARD, bd=1, relief="solid", padx=15, pady=15); f.pack(fill="both", expand=True, pady=10, padx=10)

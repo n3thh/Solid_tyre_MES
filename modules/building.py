@@ -79,6 +79,7 @@ class PC1SmartApp:
         self.root.after(500, self.connect_and_load)
 
         self.var_weight.trace_add("write", self.check_completion_status)
+        self.last_print_data = None # Stores (bid, size, press, daylight)
 
     def get_current_shift(self):
         h = datetime.datetime.now().hour
