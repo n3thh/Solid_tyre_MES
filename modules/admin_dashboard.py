@@ -123,7 +123,7 @@ class AdminDashboard:
             self.refresh_qc_list()
         elif "Prod Plan" in tab_text:
             self.refresh_plan_list()
-            self.load_master_dropdown()
+            self.search_mto_orders()
             self.load_active_presses()
         elif "Master Orders" in tab_text:
             self.load_master_orders()
@@ -191,11 +191,14 @@ class AdminDashboard:
     def refresh_qc_list(self): self._refresh_tree(self.tree_qc, "SELECT batch_no, material_type, status FROM raw_material_qc ORDER BY batch_no DESC LIMIT 50")
     def download_sample_qc(self): self._save_csv("Sample_Materials.csv", ["BATCH_NO", "MATERIAL_TYPE", "STATUS"], [["BATCH001", "RUBBER", "APPROVED"]])
 
-# --- 2. DAILY PROD PLAN (THE LIVE BOARD) ---
+    # ==========================================
+    # --- 2. DAILY PROD PLAN (THE LIVE BOARD) ---
+    # ==========================================
     def setup_plan_tab(self):
-        # Split Screen Layout
-        f_left = tk.Frame(self.tab_plan, bg="#F4F6F7", width=350, relief="ridge", bd=1)
+        # Split Screen Layout - Wider Left Panel (480px)
+        f_left = tk.Frame(self.tab_plan, bg="#F4F6F7", width=480, relief="ridge", bd=1)
         f_left.pack(side="left", fill="y", padx=10, pady=10)
+        f_left.pack_propagate(False) 
         
         f_right = tk.Frame(self.tab_plan, bg="white")
         f_right.pack(side="right", fill="both", expand=True, padx=10, pady=10)
@@ -210,29 +213,48 @@ class AdminDashboard:
         tk.Radiobutton(f_toggle, text="📦 Fulfill Master Order", variable=self.plan_mode, value="MTO", command=self.toggle_plan_mode, bg="#F4F6F7", font=("Segoe UI", 9, "bold")).pack(anchor="w")
         tk.Radiobutton(f_toggle, text="🏭 Make to Stock (Local)", variable=self.plan_mode, value="MTS", command=self.toggle_plan_mode, bg="#F4F6F7", font=("Segoe UI", 9, "bold")).pack(anchor="w")
 
-        # --- MTO FRAME (Master Orders) ---
+        # --- MTO FRAME (Searchable Mini-Grid) ---
         self.f_mto = tk.Frame(f_left, bg="#F4F6F7")
-        tk.Label(self.f_mto, text="Select Master Order:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=15)
-        self.plan_mo_cb = ttk.Combobox(self.f_mto, state="readonly", font=("Segoe UI", 10))
-        self.plan_mo_cb.pack(fill="x", padx=15, pady=5)
-        self.plan_mo_cb.bind("<<ComboboxSelected>>", self.autofill_plan_from_order)
+        
+        search_f = tk.Frame(self.f_mto, bg="#F4F6F7")
+        search_f.pack(fill="x", padx=15, pady=5)
+        tk.Label(search_f, text="🔍 PI/Customer:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).pack(side="left")
+        self.mo_search_var = tk.StringVar()
+        ent_search = tk.Entry(search_f, textvariable=self.mo_search_var, width=15)
+        ent_search.pack(side="left", padx=5)
+        ent_search.bind("<Return>", lambda e: self.search_mto_orders())
+        tk.Button(search_f, text="FIND", command=self.search_mto_orders, bg="#2980B9", fg="white", font=("Segoe UI", 8, "bold")).pack(side="left")
+
+        tk.Label(self.f_mto, text="Select Item to Build:", bg="#F4F6F7", font=("Segoe UI", 8, "italic")).pack(anchor="w", padx=15)
+        cols_mto = ("ID", "PI", "Size", "Core", "Brand", "Grade", "Pending")
+        self.tree_mto = ttk.Treeview(self.f_mto, columns=cols_mto, show="headings", height=5)
+        for c in cols_mto: self.tree_mto.heading(c, text=c)
+        self.tree_mto.column("ID", width=0, stretch=tk.NO) 
+        self.tree_mto.column("PI", width=90, anchor="center")
+        self.tree_mto.column("Size", width=120, anchor="center")
+        self.tree_mto.column("Core", width=60, anchor="center")
+        self.tree_mto.column("Brand", width=90, anchor="center")
+        self.tree_mto.column("Grade", width=60, anchor="center")
+        self.tree_mto.column("Pending", width=60, anchor="center")
+        self.tree_mto.pack(fill="x", padx=15, pady=5)
+        self.tree_mto.bind("<<TreeviewSelect>>", self.autofill_plan_from_tree)
 
         # --- MTS FRAME (Cascading Dropdowns) ---
         self.f_mts = tk.Frame(f_left, bg="#F4F6F7")
         tk.Label(self.f_mts, text="Size:", bg="#F4F6F7", font=("Segoe UI", 8, "bold")).grid(row=0, column=0, sticky="w", padx=(15,2))
-        self.cb_size = ttk.Combobox(self.f_mts, state="readonly", width=12); self.cb_size.grid(row=1, column=0, padx=(15,2), pady=2)
+        self.cb_size = ttk.Combobox(self.f_mts, state="readonly", width=15); self.cb_size.grid(row=1, column=0, padx=(15,2), pady=2)
         self.cb_size.bind("<<ComboboxSelected>>", self.on_size_select)
 
         tk.Label(self.f_mts, text="Core:", bg="#F4F6F7", font=("Segoe UI", 8, "bold")).grid(row=0, column=1, sticky="w", padx=2)
-        self.cb_core = ttk.Combobox(self.f_mts, state="readonly", width=8); self.cb_core.grid(row=1, column=1, padx=2, pady=2)
+        self.cb_core = ttk.Combobox(self.f_mts, state="readonly", width=10); self.cb_core.grid(row=1, column=1, padx=2, pady=2)
         self.cb_core.bind("<<ComboboxSelected>>", self.on_core_select)
 
         tk.Label(self.f_mts, text="Brand:", bg="#F4F6F7", font=("Segoe UI", 8, "bold")).grid(row=2, column=0, sticky="w", padx=(15,2))
-        self.cb_brand = ttk.Combobox(self.f_mts, state="readonly", width=12); self.cb_brand.grid(row=3, column=0, padx=(15,2), pady=2)
+        self.cb_brand = ttk.Combobox(self.f_mts, state="readonly", width=15); self.cb_brand.grid(row=3, column=0, padx=(15,2), pady=2)
         self.cb_brand.bind("<<ComboboxSelected>>", self.on_brand_select)
 
         tk.Label(self.f_mts, text="Quality:", bg="#F4F6F7", font=("Segoe UI", 8, "bold")).grid(row=2, column=1, sticky="w", padx=2)
-        self.cb_qual = ttk.Combobox(self.f_mts, state="readonly", width=8); self.cb_qual.grid(row=3, column=1, padx=2, pady=2)
+        self.cb_qual = ttk.Combobox(self.f_mts, state="readonly", width=10); self.cb_qual.grid(row=3, column=1, padx=2, pady=2)
         self.cb_qual.bind("<<ComboboxSelected>>", self.on_quality_select)
 
         # --- SHARED ASSIGNMENT FRAME ---
@@ -245,7 +267,6 @@ class AdminDashboard:
         self.plan_press.bind("<<ComboboxSelected>>", self.on_plan_press_select)
 
         tk.Label(self.f_shared, text="Daylight:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=15)
-        # REMOVED the hardcoded values and added state="readonly"
         self.plan_dl = ttk.Combobox(self.f_shared, state="readonly", font=("Segoe UI", 11))
         self.plan_dl.pack(fill="x", padx=15, pady=2)
 
@@ -253,40 +274,101 @@ class AdminDashboard:
         self.plan_wt = tk.Entry(self.f_shared, font=("Segoe UI", 11))
         self.plan_wt.pack(fill="x", padx=15, pady=2)
 
-        tk.Label(self.f_shared, text="Target Qty:", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=15)
+        # AUTO-SPLIT TOGGLE
+        self.auto_split_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(self.f_shared, text="⚖️ Auto-Split Pending Qty across assigned moulds", 
+                       variable=self.auto_split_var, command=self.toggle_auto_split, 
+                       bg="#F4F6F7", fg="#8E44AD", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=15, pady=(5,0))
+
+        tk.Label(self.f_shared, text="Target Qty (Manual Override):", bg="#F4F6F7", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=15)
         self.plan_qty = tk.Entry(self.f_shared, font=("Segoe UI", 11))
         self.plan_qty.pack(fill="x", padx=15, pady=2)
+        self.toggle_auto_split() # Set initial state
 
         self.hidden_plan_data = {}
         self.current_baseline_weight = 0.0
 
+        # ONLY ONE SUBMIT BUTTON NOW!
         tk.Button(f_left, text="🚀 ASSIGN TO PRESS", command=self.add_manual_plan, bg="#27AE60", fg="white", font=("Segoe UI", 11, "bold"), pady=5).pack(fill="x", padx=15, pady=15)
 
         # ================= RIGHT: LIVE PLAN GRID =================
-        tk.Label(f_right, text="📋 Live Production Board", font=("Segoe UI", 14, "bold"), bg="white", fg="#2C3E50").pack(anchor="w", pady=(0, 10))
+        tk.Label(f_right, text="📋 Live Production Board", font=("Segoe UI", 16, "bold"), bg="white", fg="#2C3E50").pack(anchor="w", pady=(0, 10))
         
-        cols = ("Press", "Daylight", "Size", "Brand", "Target Wt", "Target Qty")
+        cols = ("Press", "Daylight", "PI Number", "Size", "Core", "Brand", "Grade", "Target Wt", "Target Qty")
         self.tree_plan = ttk.Treeview(f_right, columns=cols, show="headings", height=20)
         for c in cols: self.tree_plan.heading(c, text=c)
         
         self.tree_plan.column("Press", width=70, anchor="center")
-        self.tree_plan.column("Daylight", width=80, anchor="center")
-        self.tree_plan.column("Size", width=120, anchor="center")
+        self.tree_plan.column("Daylight", width=70, anchor="center")
+        self.tree_plan.column("PI Number", width=120, anchor="center")
+        self.tree_plan.column("Size", width=130, anchor="center")
+        self.tree_plan.column("Core", width=70, anchor="center")
+        self.tree_plan.column("Brand", width=100, anchor="center")
+        self.tree_plan.column("Grade", width=80, anchor="center")
         self.tree_plan.column("Target Wt", width=80, anchor="center")
         self.tree_plan.column("Target Qty", width=80, anchor="center")
         self.tree_plan.pack(fill="both", expand=True)
+        
+        # Color Config for grouped visual rows
+        self.tree_plan.tag_configure('group1', background='#E8F8F5', foreground='#2C3E50') 
+        self.tree_plan.tag_configure('group2', background='#FFFFFF', foreground='#2C3E50') 
         
         f_grid_btns = tk.Frame(f_right, bg="white")
         f_grid_btns.pack(fill="x", pady=10)
         tk.Button(f_grid_btns, text="🗑️ Clear Selected Press", command=self.delete_plan, bg="#E74C3C", fg="white", font=("Segoe UI", 9, "bold")).pack(side="left")
         tk.Button(f_grid_btns, text="🔄 Refresh Board", command=self.refresh_plan_list, bg="#2980B9", fg="white", font=("Segoe UI", 9, "bold")).pack(side="right")
 
-        self.refresh_plan_list()
-        self.load_master_dropdown()
-        self.toggle_plan_mode() # Initialize UI state
+        self.search_mto_orders() 
+        self.toggle_plan_mode() 
         self.load_active_presses()
+        self.refresh_plan_list()
 
     # --- PLAN LOGIC & DROPDOWNS ---
+    def search_mto_orders(self):
+        term = f"%{self.mo_search_var.get().strip()}%"
+        for i in self.tree_mto.get_children():
+            self.tree_mto.delete(i)
+
+        q = """SELECT order_id, pi_number, tyre_size, core_size, brand, quality,
+                    (req_qty - COALESCE(produced_qty, 0)) as pending
+            FROM master_orders
+            WHERE (pi_number ILIKE %s OR customer_name ILIKE %s)
+                AND (req_qty - COALESCE(produced_qty, 0)) > 0
+                AND status != 'CLOSED'
+            ORDER BY committed_date ASC LIMIT 50"""
+        res = DBManager.fetch_data(q, (term, term))
+        if res:
+            for r in res:
+                self.tree_mto.insert("", "end", values=r)
+
+    def autofill_plan_from_tree(self, event):
+        sel = self.tree_mto.selection()
+        if not sel:
+            return
+        item = self.tree_mto.item(sel[0])['values']
+        order_id = item[0]
+        pi_number = str(item[1])
+        # item[2] = tyre_size, item[3] = core_size, item[4] = brand, item[5] = quality
+        pending = item[6]                     # now at index 6
+
+        # Fetch from master_orders to get all details (including quality)
+        q = "SELECT tyre_size, core_size, brand, quality FROM master_orders WHERE order_id = %s"
+        res = DBManager.fetch_data(q, (order_id,))
+        if res:
+            size, core, brand, qual = res[0]
+            self.hidden_plan_data = {'size': size, 'core': core, 'brand': brand, 'qual': qual, 'pi_number': pi_number}
+
+            self.plan_qty.delete(0, tk.END)
+            self.plan_qty.insert(0, str(pending))
+
+            # Fetch baseline weight
+            wq = "SELECT baseline_weight FROM product_catalog WHERE tyre_size=%s AND core_size=%s AND brand=%s LIMIT 1"
+            w_res = DBManager.fetch_data(wq, (size, core, brand))
+            self.current_baseline_weight = float(w_res[0][0]) if w_res else 0.0
+
+            self.plan_wt.delete(0, tk.END)
+            self.plan_wt.insert(0, str(self.current_baseline_weight))
+
     def toggle_plan_mode(self):
         mode = self.plan_mode.get()
         if mode == "MTO":
@@ -297,84 +379,19 @@ class AdminDashboard:
             self.f_mts.pack(fill="x", pady=5, before=self.f_shared)
             self.load_catalog_sizes()
 
-    def load_master_dropdown(self):
-        query = "SELECT order_id, pi_number, tyre_size, brand, req_qty, produced_qty FROM master_orders WHERE status != 'CLOSED'"
-        res = DBManager.fetch_data(query)
-        self.master_order_map = {}
-        vals = []
-        if res:
-            for r in res:
-                oid, pi, size, brand, req, prod = r
-                pending = req - (prod if prod else 0)
-                display_text = f"[{oid}] {pi} | {size} {brand} (Pending: {pending})"
-                vals.append(display_text)
-                self.master_order_map[display_text] = oid
-        self.plan_mo_cb['values'] = vals
-
     def load_active_presses(self):
         """Populate the Press dropdown with distinct active presses"""
         res = DBManager.fetch_data("SELECT DISTINCT press_id FROM press_master WHERE status='ACTIVE' ORDER BY press_id")
-        
-        # We only grab r[0] because we only asked the database for the press_id!
         self.plan_press['values'] = [r[0] for r in res] if res else []
-        
-        # Clear daylight box safely when refreshing
-        if hasattr(self, 'plan_dl'):
-            self.plan_dl.set('')
+        if hasattr(self, 'plan_dl'): self.plan_dl.set('')
 
     def on_plan_press_select(self, event):
         """Update the Daylight dropdown based on the selected Press"""
         selected_press = self.plan_press.get()
         res = DBManager.fetch_data("SELECT daylight FROM press_master WHERE press_id=%s AND status='ACTIVE' ORDER BY daylight", (selected_press,))
-        
         self.plan_dl['values'] = [r[0] for r in res] if res else []
-        
-        # Auto-select the first available daylight if there is one
-        if self.plan_dl['values']:
-            self.plan_dl.current(0)
-        else:
-            self.plan_dl.set('')
-
-
-    def autofill_plan_from_order(self, event):
-        selection = self.plan_mo_cb.get()
-        if not selection or selection not in self.master_order_map: return
-        
-        order_id = self.master_order_map[selection]
-        
-        # 1. UPDATED SQL: Now we also fetch the produced_qty
-        q = "SELECT tyre_size, core_size, brand, quality, req_qty, produced_qty FROM master_orders WHERE order_id = %s"
-        res = DBManager.fetch_data(q, (order_id,))
-        
-        if res:
-            size, core, brand, qual, req, prod = res[0]
-            
-            # 2. THE MATH: Calculate how many are actually left to build
-            prod_val = prod if prod else 0 
-            pending = req - prod_val
-            
-            # Prevent negative numbers just in case of overproduction
-            if pending < 0: pending = 0 
-            
-            self.hidden_plan_data = {'size': size, 'core': core, 'brand': brand, 'qual': qual}
-            
-            # 3. AUTO-FILL: Insert the PENDING amount, not the original total!
-            self.plan_qty.delete(0, tk.END)
-            self.plan_qty.insert(0, str(pending))
-            
-            # Fetch baseline weight from catalog
-            wq = "SELECT baseline_weight FROM product_catalog WHERE tyre_size=%s AND core_size=%s AND brand=%s LIMIT 1"
-            w_res = DBManager.fetch_data(wq, (size, core, brand))
-            self.current_baseline_weight = float(w_res[0][0]) if w_res else 0.0
-            
-            self.plan_wt.delete(0, tk.END)
-            self.plan_wt.insert(0, str(self.current_baseline_weight))
-            
-            # Optional: Pop up a quick notification if the order is already partially done
-            if prod_val > 0 and pending > 0:
-                messagebox.showinfo("Progress Update", f"Order in progress!\n\nTotal Required: {req}\nAlready Produced: {prod_val}\n\nTarget quantity auto-filled to remaining: {pending}")
-            elif pending == 0:
-                messagebox.showwarning("Order Complete", "Warning: This Master Order has already hit its required production target!")
+        if self.plan_dl['values']: self.plan_dl.current(0)
+        else: self.plan_dl.set('')       
 
     def load_catalog_sizes(self):
         res = DBManager.fetch_data("SELECT DISTINCT tyre_size FROM product_catalog WHERE is_active=TRUE ORDER BY tyre_size")
@@ -409,64 +426,95 @@ class AdminDashboard:
             self.plan_wt.delete(0, tk.END)
             self.plan_wt.insert(0, str(self.current_baseline_weight))
 
+    def refresh_plan_list(self):
+        for i in self.tree_plan.get_children():
+            self.tree_plan.delete(i)
+
+        q = """
+            SELECT
+                press_id,
+                daylight,
+                pi_number,
+                tyre_size,
+                core_size,
+                brand,
+                quality,
+                tyre_weight,
+                production_requirement
+            FROM production_plan
+            ORDER BY press_id, daylight
+        """
+        res = DBManager.fetch_data(q)
+
+        if res:
+            current_press = ""
+            color_toggle = False
+
+            for r in res:
+                row_data = list(r)      # now 9 elements
+                press_id = row_data[0]
+
+                if press_id != current_press:
+                    current_press = press_id
+                    color_toggle = not color_toggle
+                else:
+                    row_data[0] = ""     # blank duplicate press_id
+
+                tag = 'group1' if color_toggle else 'group2'
+                self.tree_plan.insert("", "end", values=row_data, tags=(tag,))
+
     def add_manual_plan(self):
         press = self.plan_press.get().strip().upper()
         dl = self.plan_dl.get().strip().upper()
+        pi_number = self.hidden_plan_data.get('pi_number') if self.plan_mode.get() == "MTO" else None
         
-        try: 
-            qty = int(self.plan_qty.get().strip())
-            target_wt = float(self.plan_wt.get().strip())
-        except ValueError: 
-            return messagebox.showerror("Error", "Quantity and Target Weight must be numeric.")
+        # Determine Quantity based on override toggle
+        if self.auto_split_var.get():
+            qty = 0 # Will be overridden by rebalance function in 1 millisecond
+        else:
+            try: qty = int(self.plan_qty.get().strip())
+            except ValueError: return messagebox.showerror("Error", "Quantity must be numeric when Auto-Split is off.")
+
+        try: target_wt = float(self.plan_wt.get().strip())
+        except ValueError: return messagebox.showerror("Error", "Target Weight must be numeric.")
             
         if not press or not dl or not self.hidden_plan_data:
             return messagebox.showerror("Error", "Please complete all fields (Order/Catalog, Press, Daylight).")
 
-        # --- GRAB THE ORDER ID (IF MTO) ---
-        order_id = None
-        if self.plan_mode.get() == "MTO":
-            selection = self.plan_mo_cb.get()
-            if selection in self.master_order_map:
-                order_id = self.master_order_map[selection]
-
-        # --- THE 15% GUARDRAIL CHECK ---
-        warning_note = ""
-        if self.current_baseline_weight > 0:
-            diff = target_wt - self.current_baseline_weight
-            pct_diff = (abs(diff) / self.current_baseline_weight) * 100
-            
-            if pct_diff > 15.0:
-                msg = f"⚠️ WEIGHT TOLERANCE ALERT\n\nEntered Weight: {target_wt} kg\nDatabase Baseline: {self.current_baseline_weight} kg\n\nThis is {pct_diff:.1f}% off standard! Are you absolutely sure you want to assign this?"
-                if not messagebox.askyesno("Confirm Deviation", msg): return
-            elif pct_diff > 0:
-                warning_note = f"\n(Note: Weight is {pct_diff:.1f}% off standard)"
-
-        # Assign to Press
+        # Delete any existing plan on this exact daylight first
         DBManager.execute_query("DELETE FROM production_plan WHERE press_id=%s AND daylight=%s", (press, dl))
 
-        # --- UPDATED SQL: Now includes order_id ---
-        q = """INSERT INTO production_plan (press_id, daylight, tyre_size, core_size, brand, quality, tyre_weight, production_requirement, order_id) 
+        # Insert the new assignment
+        q = """INSERT INTO production_plan (press_id, daylight, tyre_size, core_size, brand, quality, tyre_weight, production_requirement, pi_number) 
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"""
                
-        if DBManager.execute_query(q, (press, dl, self.hidden_plan_data['size'], self.hidden_plan_data['core'], self.hidden_plan_data['brand'], self.hidden_plan_data['qual'], target_wt, qty, order_id)):
+        if DBManager.execute_query(q, (press, dl, self.hidden_plan_data['size'], self.hidden_plan_data['core'], self.hidden_plan_data['brand'], self.hidden_plan_data['qual'], target_wt, qty, pi_number)):
+            
+            # 🔥 THE MAGIC TRIGGER 🔥
+            if self.auto_split_var.get() and pi_number:
+                self.rebalance_pi(pi_number)
+                
             self.refresh_plan_list()
-            self.plan_qty.delete(0, tk.END)
-            messagebox.showinfo("Success", f"{press} ({dl}) Assigned!{warning_note}")
+            if self.plan_mode.get() == "MTO": self.search_mto_orders()
+            messagebox.showinfo("Success", f"{press} ({dl}) Assigned!")
 
     def delete_plan(self):
         sel = self.tree_plan.selection()
         if not sel: return messagebox.showwarning("Warning", "Select a Press assignment to clear.")
         item = self.tree_plan.item(sel[0])['values']
+        press_id = str(item[0])
+        daylight = str(item[1])
+        pi_number = str(item[2]) # <--- FIX: Force string conversion here!
         
-        if messagebox.askyesno("Confirm", f"Clear plan for {item[0]} ({item[1]})?"):
-            DBManager.execute_query("DELETE FROM production_plan WHERE press_id=%s AND daylight=%s", (item[0], item[1]))
+        if messagebox.askyesno("Confirm", f"Clear plan for {press_id} ({daylight})?"):
+            DBManager.execute_query("DELETE FROM production_plan WHERE press_id=%s AND daylight=%s", (press_id, daylight))
+            
+            # 🔥 REBALANCE THE REMAINING PRESSES 🔥
+            if pi_number and pi_number != "MTS (STOCK)":
+                self.rebalance_pi(pi_number)
+                
             self.refresh_plan_list()
-
-    def refresh_plan_list(self): 
-        self._refresh_tree(self.tree_plan, "SELECT press_id, daylight, tyre_size, brand, tyre_weight, production_requirement FROM production_plan ORDER BY press_id, daylight")
-        self.load_master_dropdown()
-
-
+            if self.plan_mode.get() == "MTO": self.search_mto_orders()
 
     def upload_plan(self):
         rows = self._read_csv_file()
@@ -487,13 +535,56 @@ class AdminDashboard:
                  r.get('CORE_SIZE'), r.get('MOULD_ID'), req)): count += 1
         messagebox.showinfo("Success", f"Uploaded {count} plans"); self.refresh_plan_list()
 
-    def refresh_plan_list(self): 
-        self._refresh_tree(self.tree_plan, "SELECT press_id, daylight, tyre_size, quality, production_requirement FROM production_plan ORDER BY press_id, daylight")
-    
+        
     def download_sample_plan(self): 
         self._save_csv("Sample_Plan.csv", 
                        ["PRESS", "DAYLIGHT", "TYRE_SIZE", "CORE_SIZE", "BRAND", "PATTERN", "QUALITY", "MOULD_ID", "TYPE", "TYRE WEIGHT", "PRODUCTION_REQUIREMENT"], 
                        [["P-01", "1", "12.00-20", "10", "BRAND-X", "LUG", "A-GRADE", "M123", "STD", "45.5", "20"]])
+
+    def toggle_auto_split(self):
+        """Disables the manual QTY input if Auto-Split is turned on."""
+        if self.auto_split_var.get():
+            self.plan_qty.delete(0, tk.END)
+            self.plan_qty.insert(0, "AUTO")
+            self.plan_qty.config(state="disabled")
+        else:
+            self.plan_qty.config(state="normal")
+            self.plan_qty.delete(0, tk.END)
+
+    def rebalance_pi(self, pi_number):
+        """Dynamically splits the pending quantity across all assigned presses for this PI."""
+        if not pi_number: return
+        
+        pi_number = str(pi_number) # <--- FIX: Force string conversion as a final safeguard
+
+        # 1. Calculate how many are actually left to build
+        q_mo = "SELECT (req_qty - COALESCE(produced_qty, 0)) FROM master_orders WHERE pi_number = %s"
+        res_mo = DBManager.fetch_data(q_mo, (pi_number,))
+        if not res_mo: return
+        pending = int(res_mo[0][0])
+        if pending <= 0: pending = 0
+
+        # 2. Find all active moulds assigned to this PI
+        q_plan = "SELECT press_id, daylight FROM production_plan WHERE pi_number = %s ORDER BY press_id, daylight"
+        res_plan = DBManager.fetch_data(q_plan, (pi_number,))
+        
+        if not res_plan: return
+        
+        mould_count = len(res_plan)
+        
+        # 3. The Math: e.g., 50 / 3 = 16 remainder 2. (Result: 17, 17, 16)
+        base_qty = pending // mould_count
+        remainder = pending % mould_count
+
+        # 4. Update the live board
+        for index, (p_id, dl) in enumerate(res_plan):
+            # Distribute the remainder 1 by 1 to the first few presses
+            final_qty = base_qty + (1 if index < remainder else 0)
+            
+            DBManager.execute_query(
+                "UPDATE production_plan SET production_requirement = %s WHERE press_id = %s AND daylight = %s AND pi_number = %s", 
+                (final_qty, p_id, dl, pi_number)
+            )
 
     # --- NEW: MASTER ORDERS ---
     def setup_master_orders_tab(self):

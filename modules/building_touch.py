@@ -45,7 +45,7 @@ class PC1TouchApp:
         self.sel_daylight = ""
         self.plan_data = {
             "size": "—", "core": "—", "brand": "—", "quality": "—",
-            "target_wt": 0.0, "type": "—", "is_pob": False, "order_id": None
+            "target_wt": 0.0, "type": "—", "is_pob": False, "pi_number": None
         }
         self.targets = {"core": 0.0, "mid": 0.0, "ct": 0.0,
                         "gum": 0.0, "tread": 0.0, "bead": "—"}
@@ -604,7 +604,7 @@ class PC1TouchApp:
             self.sel_daylight = ""
             self.plan_data = {
                 "size": "—", "core": "—", "brand": "—", "quality": "—",
-                "target_wt": 0.0, "type": "—", "is_pob": False, "order_id": None
+                "target_wt": 0.0, "type": "—", "is_pob": False, "pi_number": None
             }
         self.sel_press = p_id
         self.render_page_1()
@@ -619,7 +619,7 @@ class PC1TouchApp:
         dl_query = self.sel_daylight.strip().upper() 
         
         q = """SELECT tyre_size, brand, pattern, quality, mould_id_marks, type, 
-                      tyre_weight, order_id 
+                      tyre_weight, pi_number 
                FROM production_plan 
                WHERE TRIM(press_id)=%s AND TRIM(daylight)=%s LIMIT 1"""
                
@@ -628,7 +628,7 @@ class PC1TouchApp:
         """Automated Job Card fetching with POB detection."""
         res = DBManager.fetch_data(
             """SELECT tyre_size, brand, pattern, quality, mould_id_marks, type, 
-                      tyre_weight, core_size, production_requirement, order_id 
+                      tyre_weight, core_size, production_requirement, pi_number 
                FROM production_plan 
                WHERE TRIM(press_id)=%s AND TRIM(daylight)=%s LIMIT 1""",
             (self.sel_press, self.sel_daylight)
@@ -647,7 +647,7 @@ class PC1TouchApp:
                 "type":      r[5] if r[5] else "—",
                 "target_wt": float(r[6] or 0.0),
                 "is_pob":    is_pob_detected,
-                "order_id":  r[9]
+                "pi_number":  r[9]
             })
             
             # Calculate targets (this will now skip beads if POB is True)
@@ -758,7 +758,7 @@ class PC1TouchApp:
                    b_id, press_id, daylight, tyre_size, core_size, brand, quality,
                    pattern, mould_id_marks, batch_core, batch_mid, batch_tread, batch_gum,
                    tread_type, green_tyre_weight, ms_rim_weight, operator_id, shift,
-                   is_pob, status, order_id, birth_time
+                   is_pob, status, pi_number, birth_time
                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""
         
         data = (
@@ -782,7 +782,7 @@ class PC1TouchApp:
             self._get_shift(),
             self.plan_data["is_pob"], 
             status,
-            self.plan_data["order_id"],
+            self.plan_data["pi_number"],
             datetime.datetime.now() if status == "COMPLETED" else None
         )
 
@@ -871,7 +871,7 @@ class PC1TouchApp:
         self.sel_press = ""; self.sel_daylight = ""
         self.plan_data = {
             "size": "—", "core": "—", "brand": "—", "quality": "—",
-            "target_wt": 0.0, "type": "—", "is_pob": False, "order_id": None
+            "target_wt": 0.0, "type": "—", "is_pob": False, "pi_number": None
         }
         self.targets = {"core":0.0,"mid":0.0,"ct":0.0,
                         "gum":0.0,"tread":0.0,"bead":"—"}

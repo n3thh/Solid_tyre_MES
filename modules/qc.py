@@ -318,10 +318,12 @@ class FinalQCApp:
         if res:
             r = res[0]
             self.current_tyre_data = r 
+            is_pob = r[13] # Get POB Status
             
             # 1. Fill Basic UI
             self.ui_size.set(r[1])
-            self.ui_core.set(r[2] if r[2] else "—") 
+            # If it's POB, explicitly say POB. Otherwise, use the core size.
+            self.ui_core.set("POB" if is_pob else (r[2] if r[2] else "—")) 
             self.ui_brand.set(r[3])
             self.ui_quality.set(r[4])
             self.ui_mould.set(r[15]) 
@@ -356,7 +358,11 @@ class FinalQCApp:
 
         self.txt_history.insert(tk.END, "1. BUILDING GENETICS (PC1)\n", "header")
         insert_kv("Green ID", r[0])
-        insert_kv("Size & Core", f"{r[1]} | Core: {r[2]}")
+        
+        # Display POB instead of missing core
+        core_display = "POB" if is_pob else (r[2] if r[2] else "—")
+        insert_kv("Size & Core", f"{r[1]} | Core: {core_display}")
+        
         insert_kv("Brand & Quality", f"{r[3]} | {r[4]}")
         insert_kv("Green Wt", f"{r[7]} kg")
         insert_kv("Built On", r[5])
@@ -365,9 +371,15 @@ class FinalQCApp:
         
         self.txt_history.insert(tk.END, "\n  [MATERIAL BATCHES]\n", "label")
         insert_kv("  Tread", r[9] if r[9] else "N/A")
-        insert_kv("  Core", r[8] if r[8] else "N/A")
-        insert_kv("  Mid", r[10] if r[10] else "-")
-        if is_pob: insert_kv("  Gum", r[11] if r[11] else "N/A")
+        
+        # Filter batches based on tyre type
+        if is_pob:
+            insert_kv("  Core", "N/A (POB Tire)", "label")
+            insert_kv("  Mid", "N/A (POB Tire)", "label")
+            insert_kv("  Gum", r[11] if r[11] else "N/A")
+        else:
+            insert_kv("  Core", r[8] if r[8] else "N/A")
+            insert_kv("  Mid", r[10] if r[10] else "-")
 
         self.txt_history.insert(tk.END, "2. CURING PROCESS (PC2)\n", "header")
         insert_kv("Serial No", r[14])
@@ -404,7 +416,7 @@ class FinalQCApp:
             
         self.txt_history.insert(tk.END, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n", "divider")
         self.txt_history.config(state=tk.DISABLED)
-
+        
     def generate_html_card(self):
         if not self.current_tyre_data: return messagebox.showerror("Error", "Scan a tyre first!",parent=self.root)
         r = self.current_tyre_data
@@ -413,9 +425,19 @@ class FinalQCApp:
         hardness_txt = "Not Tested"
         if r[28] or r[30]: hardness_txt = f"Core: {r[28]}-{r[29]} | Tread: {r[30]}-{r[31]}"
         
-        gum_html = ""
+        # POB Specific Logic for Batches
         if is_pob:
-            gum_html = f'<div class="row"><span class="label">Gum Batch:</span><span class="val">{r[11] if r[11] else "-"}</span></div>'
+            batch_html = f'''
+            <div class="row"><span class="label">Tread Batch:</span><span class="val">{r[9] if r[9] else 'N/A'}</span></div>
+            <div class="row"><span class="label">Core/Mid Batch:</span><span class="val" style="color:#bdc3c7;">N/A (POB Tire)</span></div>
+            <div class="row"><span class="label">Gum Batch:</span><span class="val">{r[11] if r[11] else "-"}</span></div>
+            '''
+        else:
+            batch_html = f'''
+            <div class="row"><span class="label">Tread Batch:</span><span class="val">{r[9] if r[9] else 'N/A'}</span></div>
+            <div class="row"><span class="label">Core Batch:</span><span class="val">{r[8] if r[8] else 'N/A'}</span></div>
+            <div class="row"><span class="label">Middle Batch:</span><span class="val">{r[10] if r[10] else '-'}</span></div>
+            '''
 
         defect_html = ""
         if r[32]:
@@ -434,6 +456,8 @@ class FinalQCApp:
             <h2>4. Logistics & Despatch</h2>
             <div class="row"><span class="label">Status:</span><span class="val" style="color:#E67E22;">IN WAREHOUSE</span></div>
             '''
+
+        core_display = "POB" if is_pob else (r[2] if r[2] else "—")
 
         html = f"""
         <html>
@@ -461,7 +485,7 @@ class FinalQCApp:
                 <h2>1. Building Genetics</h2>
                 <div class="row"><span class="label">Green ID:</span><span class="val">{r[0]}</span></div>
                 <div class="row"><span class="label">Tyre Size:</span><span class="val">{r[1]}</span></div>
-                <div class="row"><span class="label">Core Size:</span><span class="val">{r[2]}</span></div>
+                <div class="row"><span class="label">Core Size:</span><span class="val">{core_display}</span></div>
                 <div class="row"><span class="label">Brand:</span><span class="val">{r[3]}</span></div>
                 <div class="row"><span class="label">Quality:</span><span class="val">{r[4]}</span></div>
                 <div class="row"><span class="label">Green Weight:</span><span class="val">{r[7]} kg</span></div>
@@ -470,10 +494,7 @@ class FinalQCApp:
                 <div class="row"><span class="label">Building Remarks:</span><span class="val">{r[6] if r[6] else 'None'}</span></div>
                 
                 <div class="batch-box">
-                    <div class="row"><span class="label">Tread Batch:</span><span class="val">{r[9] if r[9] else 'N/A'}</span></div>
-                    <div class="row"><span class="label">Core Batch:</span><span class="val">{r[8] if r[8] else 'N/A'}</span></div>
-                    <div class="row"><span class="label">Middle Batch:</span><span class="val">{r[10] if r[10] else '-'}</span></div>
-                    {gum_html}
+                    {batch_html}
                 </div>
 
                 <h2>2. Curing Process</h2>
@@ -508,6 +529,22 @@ class FinalQCApp:
         serial = self.var_scan.get().strip()
         if not serial: return messagebox.showerror("Error", "Scan Tyre First",parent=self.root)
         
+        # --- NEW STRICT VALIDATION LOGIC ---
+        if grade == "A-GRADE":
+            is_pob = self.current_tyre_data[13] if self.current_tyre_data else False
+            
+            t_min = self.h_tread_min.get().strip()
+            t_max = self.h_tread_max.get().strip()
+            c_min = self.h_core_min.get().strip()
+            c_max = self.h_core_max.get().strip()
+
+            if not t_min.isdigit() or not t_max.isdigit():
+                return messagebox.showerror("Validation Error", "Valid numeric Tread Hardness (Min/Max) is required for A-GRADE.", parent=self.root)
+                
+            if not is_pob and (not c_min.isdigit() or not c_max.isdigit()):
+                return messagebox.showerror("Validation Error", "Valid numeric Core Hardness (Min/Max) is required for A-GRADE standard solid tyres.", parent=self.root)
+        # -----------------------------------
+
         defects = "|".join(self.defect_list_store)
         remarks = self.var_remarks.get().strip()
         q_ins = """INSERT INTO pc3_quality (tyre_id, grade, defect_codes, inspector_name, qc_remarks, inspected_at, is_finalized, hardness_core_min, hardness_core_max, hardness_tread_min, hardness_tread_max) VALUES (%s, %s, %s, %s, %s, NOW(), TRUE, %s, %s, %s, %s)"""
@@ -532,8 +569,6 @@ class FinalQCApp:
             self.print_qc_label(serial, grade, self.ui_size.get(), self.ui_brand.get())
             messagebox.showinfo("Saved", f"Tyre Graded: {grade}", parent=self.root)
             self.reset_ui()
-            
-            # Refresh the tracker tab seamlessly!
             self.load_tracker_data()
 
     def load_tracker_data(self):
