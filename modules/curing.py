@@ -63,6 +63,7 @@ class CuringApp:
         
         # Load Press Config
         self.press_modes = self.load_config() 
+        self.oven_slot = None
 
         self.setup_ui()
         self.load_operators() 
@@ -247,8 +248,12 @@ class CuringApp:
 
     # ================= TAB 1: CURING PROCESS =================
     def build_tab1(self):
-        left = tk.Frame(self.tab1, bg=C_BG); left.pack(side="left", fill="both", expand=True, padx=10, pady=10)
-        card = self.create_card(left, "START NEW CURE")
+        left = tk.Frame(self.tab1, bg=C_BG)
+        left.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+        
+        # FIX: Define self.card_start as a class attribute
+        self.card_start = self.create_card(left, "START NEW CURE")
+        card = self.card_start
         
         # --- PERSONNEL SECTION ---
         f_ppl = tk.Frame(card, bg=C_CARD); f_ppl.pack(fill="x", pady=(0, 10))
@@ -333,8 +338,9 @@ class CuringApp:
     # ================= LOGIC =================
     def lookup_green_tyre(self, event):
         bid = self.var_bid.get().strip().upper()
-        if not bid: return
-        
+        if not bid:
+            return
+
         # 1. Check duplicate scan in Curing table
         q_check = "SELECT status, press_no, serial_no FROM pc2_curing WHERE b_id=%s"
         res_check = DBManager.fetch_data(q_check, (bid,))
@@ -344,7 +350,6 @@ class CuringApp:
             return
 
         # 2. Fetch Full Data from Building table
-        # 2. Fetch Full Data from Building table (ADDED: b.status)
         q = """
             SELECT 
                 b.tyre_size, b.brand, b.pattern, b.green_tyre_weight, 
@@ -354,39 +359,45 @@ class CuringApp:
             WHERE b.b_id = %s
         """
         res = DBManager.fetch_data(q, (bid,))
-        
+
         if res:
             r = res[0]
-            status = r[10] # The PC1 Status
-            
-            # --- THE NEW STRICT GATEKEEPER ---
-            if res:
-                r = res[0]
-                status = r[10] # PC1 Status from your query
-                
-                if status != 'COMPLETED':
-                    self.lbl_gt_size.config(text="❌ REJECTED: PARTIAL", fg="red")
-                    # Explicit Warning Popup
-                    messagebox.showwarning("Incomplete Tyre", 
-                        f"Tyre {bid} is marked as 'PARTIAL' in Building.\n\n"
-                        "It must have a Tread Layer and Weight entered before curing.", 
-                        parent=self.root)
-                    return
-            # ----------------------------------
+            status = r[10]  # PC1 Status
 
-            # Unpack data (Indices match the SELECT order)
+            # Unpack data
             size = r[0]
             brand = r[1]
             pattern = r[2]
             weight = r[3]
-            plan_press = r[4]
-            daylight = r[5]
+            plan_press = r[4]      # e.g., "OVEN-1" or "P1"
+            daylight = r[5]         # e.g., "SLOT-01" or "TOP"
             build_time = r[6]
             builder_name = r[7] if r[7] else "Unknown"
             tread = r[8]
             grade = r[9] if r[9] else "STD"
 
-            # Calculate Age
+            # 2a. Show/hide loader selection based on oven plan
+            if "OVEN" in str(plan_press).upper():
+                self.show_loading_press_selection()
+            else:
+                self.hide_loading_press_selection()
+
+            # 2b. Determine oven variables and press field filling
+            if "OVEN" in str(plan_press).upper():
+                self.target_oven_id = plan_press      # e.g., "OVEN-1"
+                self.oven_slot = daylight              # e.g., "SLOT-01"
+                # Do NOT pre‑fill the press field; operator will choose loader
+                self.var_press.set("")
+            else:
+                self.target_oven_id = None
+                self.oven_slot = None
+                # Fill press field normally (e.g., "P1-TOP")
+                filled_press = str(plan_press)
+                if daylight and daylight != "SINGLE":
+                    filled_press += f"-{daylight}"
+                self.var_press.set(filled_press)
+
+            # 3. Calculate Age
             age_str = "0h 0m"
             if build_time:
                 diff = datetime.datetime.now() - build_time
@@ -394,111 +405,177 @@ class CuringApp:
                 mins = int((diff.total_seconds() % 3600) // 60)
                 age_str = f"{hrs}h {mins}m"
 
-            # Update Labels
+            # 4. Update Labels
             self.lbl_gt_size.config(text=f"✅ Size: {size}", fg="#27AE60")
-            # Now 'grade' works because we fetched it
-            self.lbl_gt_brand.config(text=f"{brand} | {grade} | {tread}") 
+            self.lbl_gt_brand.config(text=f"{brand} | {grade} | {tread}")
             self.lbl_gt_operator.config(text=f"Operator: {builder_name}")
             self.lbl_gt_age.config(text=f"Age: {age_str}")
             self.lbl_gt_weight.config(text=f"Weight: {weight} kg")
 
-            # Logic: Auto-fill fields based on Press Mode
+            # 5. Auto‑fill fields based on Press Mode
             press_key = self.normalize_press_id(plan_press)
-            mode = self.press_modes.get(press_key, "STD") 
+            mode = self.press_modes.get(press_key, "STD")
 
             if mode == "OVEN":
                 self.var_time.set("180")
-                self.var_pressure.set("N/A")   
-                # Ensure simpledialog is imported at top of file: from tkinter import simpledialog
-                oven_choice = simpledialog.askstring("Target Oven", f"Plan: {plan_press} -> {press_key} (Oven Mode)\n\nWhich Oven?\n(Enter 1 or 2)", parent=self.root)
+                self.var_pressure.set("N/A")
+                # Ask operator which oven (1 or 2) – this can be removed if you rely on the plan
+                oven_choice = simpledialog.askstring(
+                    "Target Oven",
+                    f"Plan: {plan_press} -> {press_key} (Oven Mode)\n\nWhich Oven?\n(Enter 1 or 2)",
+                    parent=self.root
+                )
                 if oven_choice:
-                    clean_choice = ''.join(filter(str.isdigit, oven_choice)) 
-                    if clean_choice: self.target_oven_id = f"OVEN-{clean_choice}"
+                    clean_choice = ''.join(filter(str.isdigit, oven_choice))
+                    if clean_choice:
+                        self.target_oven_id = f"OVEN-{clean_choice}"
             else:
                 self.var_time.set("45")
-                self.var_pressure.set("150")   
-                self.target_oven_id = None
+                self.var_pressure.set("150")
+                # target_oven_id already set above for non‑oven tyres
 
-            # Handle Daylight naming (e.g., P01 -> P01-TOP)
-            filled_press = str(plan_press)
-            if daylight and daylight != "SINGLE": # Added check to avoid 'P01-SINGLE' if simpler naming is preferred
-                filled_press += f"-{daylight}"
-            self.var_press.set(filled_press)
-            
-            # Auto-Load Moulds
+            # 6. Auto‑load Moulds
             q_moulds = "SELECT mould_id FROM pc1_mould_mapping WHERE tyre_size=%s ORDER BY mould_id"
             mould_list = DBManager.fetch_data(q_moulds, (size,))
             if mould_list:
                 valid_moulds = [m[0] for m in mould_list]
                 self.combo_mould['values'] = valid_moulds
-                if len(valid_moulds) > 0: self.combo_mould.set(valid_moulds[0]) 
-            
+                if len(valid_moulds) > 0:
+                    self.combo_mould.set(valid_moulds[0])
+
+            # 7. Generate next serial number
             self.generate_next_serial()
+
         else:
             self.lbl_gt_size.config(text="❌ ID NOT FOUND", fg="red")
-            self.reset_gt_labels() # Helper to clear old data if ID is wrong
+            self.reset_gt_labels()  # Helper to clear old data if ID is wrong
+
+    def show_loading_press_selection(self):
+        """Creates a dynamic dropdown showing only presses currently in OVEN mode."""
+        # Find all presses set to OVEN in your config (P1, P2, P3, P7, etc.)
+        oven_enabled_presses = [p for p, mode in self.press_modes.items() if mode == "OVEN"]
+        
+        if not hasattr(self, 'f_loader_ui'):
+            self.f_loader_ui = tk.Frame(self.card_start, bg=C_CARD)
+            self.f_loader_ui.pack(fill="x", pady=5, after=self.f_green_info)
+            
+            tk.Label(self.f_loader_ui, text="Select Loading Press:", 
+                     bg=C_CARD, font=("Segoe UI", 10, "bold"), fg="#D35400").pack(anchor="w")
+            
+            self.var_loading_press = tk.StringVar()
+            self.combo_loader = ttk.Combobox(self.f_loader_ui, textvariable=self.var_loading_press, 
+                                            values=oven_enabled_presses, state="readonly", font=("Segoe UI", 11))
+            self.combo_loader.pack(fill="x", pady=2)
+        else:
+            # Update values in case you toggled a switch while the app was open
+            self.combo_loader['values'] = oven_enabled_presses
+            self.f_loader_ui.pack(fill="x", pady=5, after=self.f_green_info)
+
+    def hide_loading_press_selection(self):
+        """Hides the loader selection for standard presses."""
+        if hasattr(self, 'f_loader_ui'):
+            self.f_loader_ui.pack_forget()
+            self.var_loading_press.set("") # Clear selection
 
     def start_curing(self):
-        bid = self.var_bid.get().strip().upper() 
-        serial = self.var_serial.get(); 
-        selected_press = self.var_press.get().strip(); mould = self.var_mould.get()
+        bid = self.var_bid.get().strip().upper()
+        serial = self.var_serial.get()
+        selected_press = self.var_press.get().strip()
+        mould = self.var_mould.get()
         operator = self.var_operator.get()
 
-        if not bid or not serial or not selected_press or not operator: 
-            return messagebox.showerror("Error", "Missing Fields/Operator",parent=self.root)
+        if not bid or not serial or not selected_press or not operator:
+            return messagebox.showerror("Error", "Missing Fields/Operator", parent=self.root)
 
-        build_info = DBManager.fetch_data("SELECT green_tyre_weight, status FROM pc1_building WHERE b_id=%s", (bid,))
-        if not build_info: 
+        # 1. Fetch Green Tyre info
+        build_info = DBManager.fetch_data(
+            "SELECT green_tyre_weight, status FROM pc1_building WHERE b_id=%s", (bid,)
+        )
+        if not build_info:
             return messagebox.showerror("Error", "B-ID Not Found", parent=self.root)
-            
-        g_weight, b_status = build_info[0]
-        
-        if b_status != 'COMPLETED' or g_weight is None or g_weight <= 0:
-            return messagebox.showerror("CRITICAL ERROR", "This tyre is a PARTIAL build.\n\nIt must have a tread layer applied and a Green Weight recorded in PC1 before it can be cured.", parent=self.root)
-        # -----------------------------
-        
-        if not build_info: return messagebox.showerror("Error", "B-ID Not Found",parent=self.root)
-        g_weight = build_info[0][0] 
 
-        press_key = self.normalize_press_id(selected_press)
-        mode = self.press_modes.get(press_key, "STD")
-        is_oven_mode = (mode == "OVEN")
+        g_weight, b_status = build_info[0]
+
+        # Guard against partial builds
+        if b_status != 'COMPLETED' or g_weight is None or g_weight <= 0:
+            return messagebox.showerror(
+                "CRITICAL ERROR",
+                "This tyre is a PARTIAL build. Must be completed in PC1 first.",
+                parent=self.root
+            )
+
+        # 2. Determine if this is an oven cure
+        is_oven_mode = ("OVEN" in selected_press.upper()) or (self.target_oven_id is not None)
 
         if is_oven_mode:
-            if not self.target_oven_id: return messagebox.showerror("Error", "Select Oven ID",parent=self.root)
+            # Oven mode: must have target oven and loader selection
+            if not self.target_oven_id:
+                return messagebox.showerror(
+                    "Error",
+                    "Target Oven Slot not determined. Please re‑scan the B‑ID.",
+                    parent=self.root
+                )
+
+            loader_id = self.var_loading_press.get()
+            if not loader_id:
+                return messagebox.showerror(
+                    "Selection Required",
+                    "Please select the physical Oven Press (Loader).",
+                    parent=self.root
+                )
+
+            try:
+                duration = int(self.var_time.get())
+            except ValueError:
+                duration = 180
+
+            # Combine oven ID and the actual slot (e.g., "OVEN-1 (SLOT-01)")
             real_id_to_save = f"{self.target_oven_id} ({selected_press})"
-            try: duration = int(self.var_time.get())
-            except: duration = 180
+
         else:
+            # Standard press mode
+            loader_id = None
+            try:
+                duration = int(self.var_time.get())
+            except ValueError:
+                duration = 45
             real_id_to_save = selected_press
-            try: duration = int(self.var_time.get())
-            except: duration = 45
 
+        # 3. Calculate idle time for this press
         idle_mins = self.calculate_idle_time(real_id_to_save)
-        
-        # INSERT START TIME (End Time is NULL until Unload)
-        q = """INSERT INTO pc2_curing (
-                    b_id, serial_no, press_no, mould_no, temperature, 
-                    pressure, curing_time_minutes, is_oven, start_time, 
-                    idle_time_minutes, status, operator_name, supervisor_name, green_weight
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, 'CURING', %s, %s, %s)"""
-        
-        data = (bid, serial, real_id_to_save, mould, self.var_temp.get(), 
-                self.var_pressure.get(), duration, is_oven_mode, idle_mins, 
-                operator, self.current_supervisor, g_weight)
-        
-        if DBManager.execute_query(q, data):
-            est_unload = datetime.datetime.now() + datetime.timedelta(minutes=5+duration)
-            self.print_c_label(serial, f"{real_id_to_save}-{mould} | {est_unload.strftime('%I:%M %p')}")
-            self.target_oven_id = None 
-            self.load_active_cures(); self.var_bid.set(""); self.var_serial.set("")
-            self.lbl_gt_size.config(text="Size: —", fg="#27AE60") # Reset labels
-            self.lbl_gt_brand.config(text="Brand/Pattern: —")
-            self.lbl_gt_operator.config(text="Operator: —")
-            self.lbl_gt_age.config(text="Age: —")
-            self.lbl_gt_weight.config(text="Weight: —")
-            messagebox.showinfo("Started", f"Curing Started: {real_id_to_save}",parent=self.root)
 
+        # 4. Insert into database
+        q = """INSERT INTO pc2_curing (
+                    b_id, serial_no, press_no, mould_no, temperature,
+                    pressure, curing_time_minutes, is_oven, start_time,
+                    idle_time_minutes, status, operator_name, supervisor_name,
+                    green_weight, loading_press_id
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, 'CURING', %s, %s, %s, %s)"""
+
+        data = (
+            bid, serial, real_id_to_save, mould,
+            self.var_temp.get(), self.var_pressure.get(),
+            duration, is_oven_mode, idle_mins,
+            operator, self.current_supervisor, g_weight,
+            loader_id
+        )
+
+        if DBManager.execute_query(q, data):
+            est_unload = datetime.datetime.now() + datetime.timedelta(minutes=5 + duration)
+            self.print_c_label(serial, f"{real_id_to_save}-{mould} | {est_unload.strftime('%I:%M %p')}")
+
+            # Reset for next tyre
+            self.target_oven_id = None
+            self.var_bid.set("")
+            self.var_serial.set("")
+            self.hide_loading_press_selection()   # if you have this method
+
+            self.load_active_cures()
+            messagebox.showinfo(
+                "Started",
+                f"Curing Started at {real_id_to_save}\nLoaded by {loader_id if loader_id else 'Direct Press'}",
+                parent=self.root
+            )
     def unload_press(self):
         sel_p = self.tree_press.selection()
         sel_o = self.tree_oven.selection()
@@ -532,6 +609,22 @@ class CuringApp:
             if DBManager.execute_query(q, (press_id,)):
                 self.load_active_cures()
                 messagebox.showinfo("Unloaded", f"{press_id} is now COOLING.", parent=self.root)
+
+    def unload_oven_slot(self):
+        selected = self.tree_oven.selection()
+        if not selected:
+            return messagebox.showwarning("Selection Required", "Please select a specific Oven Slot to unload.")
+
+        vals = self.tree_oven.item(selected[0])['values']
+        slot_id = vals[0] # e.g., "OVEN-1 (SLOT-01)"
+
+        if messagebox.askyesno("Confirm Unload", f"Unload tyre from {slot_id}?\nThis mould will now be free for the next build."):
+            q = """UPDATE pc2_curing SET status='COOLING', end_time=NOW(), 
+                   overcure_minutes = ROUND(EXTRACT(EPOCH FROM (NOW() - start_time))/60 - curing_time_minutes)
+                   WHERE press_no=%s AND status='CURING'"""
+            if DBManager.execute_query(q, (slot_id,)):
+                self.load_active_cures()
+                messagebox.showinfo("Success", f"Slot {slot_id} moved to COOLING.")            
 
     def load_active_cures(self):
         # Clear existing rows

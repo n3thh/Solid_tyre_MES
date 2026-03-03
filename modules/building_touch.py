@@ -5,6 +5,7 @@ import platform
 from db_manager import DBManager
 import csv
 import os
+import json
 
 # --- UI CONSTANTS ---
 C_BG       = "#1A1A2E"
@@ -20,6 +21,8 @@ PAGE_MACHINE = "MACHINE"
 PAGE_BATCHES = "BATCHES"
 PAGE_FINISH  = "FINISH"
 PAGE_UPDATE  = "UPDATE"
+CONFIG_FILE = "press_config.json"
+C_OVEN = "#F39C12"   # Orange for oven‑capable presses
 
 
 class PC1TouchApp:
@@ -62,12 +65,38 @@ class PC1TouchApp:
 
         self._load_press_list()
         self._prefetch_all_batches()   # <-- fetch ALL batch types once at startup
+        self.press_modes = self.load_config()   # <-- add this line
 
         self._build_ui()
         self.render_page_1()
         self.last_print_data = None # Stores (bid, size, press, daylight)
+        self._weight_trace_id = None
+        self._weight_highlight_id = None
 
-        
+    def load_config(self):
+        default = {"P1": "STD", "P2": "STD", "P3": "STD", "P7": "STD"}
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, 'r') as f:
+                    return json.load(f)
+            except:
+                pass
+        return default    
+
+    def _clean_weight_traces(self):
+        """Remove any existing traces on weight_var."""
+        if self._weight_trace_id:
+            try:
+                self.weight_var.trace_remove("write", self._weight_trace_id)
+            except:
+                pass
+            self._weight_trace_id = None
+        if self._weight_highlight_id:
+            try:
+                self.weight_var.trace_remove("write", self._weight_highlight_id)
+            except:
+                pass
+            self._weight_highlight_id = None        
     # =========================================================
     # STARTUP DATA LOADING
     # =========================================================
@@ -124,6 +153,8 @@ class PC1TouchApp:
         
         res = DBManager.fetch_data(q, (f"%{material_type}%",))
         return [r[0].strip() for r in res] if res else []
+        self.press_modes = self.load_config()    
+
 
     def _get_unique_presses(self):
         seen, out = set(), []
@@ -201,6 +232,10 @@ class PC1TouchApp:
             s, text="⬅ GO BACK", font=("Segoe UI", 12, "bold"),
             bg="#34495E", fg="white", height=1)
 
+        self._sb_remaining = tk.Label(s, text="", bg=C_CARD_BG, fg="#F39C12",
+                               font=("Segoe UI", 16, "bold"))
+        self._sb_remaining.pack(pady=5)    
+
         tk.Button(s, text="🖨️ LAST REPRINT", bg="#16A085", fg="white", 
           font=("Segoe UI", 12, "bold"), height=2,
           command=lambda: self.print_label(*self.last_print_data) if self.last_print_data else None
@@ -267,6 +302,13 @@ class PC1TouchApp:
         self._sb_target_wt.config(
             text=f"TARGET WT: {self.plan_data['target_wt']:.2f} KG")
 
+        # Update remaining count
+        if self.plan_data.get('production_requirement', 0) > 0:
+            remaining = self.plan_data['production_requirement'] - self.plan_data.get('produced_qty', 0)
+            self._sb_remaining.config(text=f"REMAINING: {remaining} / {self.plan_data['production_requirement']}")
+        else:
+            self._sb_remaining.config(text="")    
+
         for key, lv in self._tgt_labels.items():
             val = self.targets[key]
             lv.config(text=f"{val:.2f}",
@@ -314,6 +356,7 @@ class PC1TouchApp:
         self._clear_workspace()
         self._clear_btn_bar()
         self._refresh_sidebar("STEP 1: MACHINE")
+        self.press_modes = self.load_config()
 
         canvas, scroll_frame = self._make_scrollable_workspace()
         right = scroll_frame
@@ -326,9 +369,18 @@ class PC1TouchApp:
         p_grid = tk.Frame(right, bg=C_BG); p_grid.pack(pady=10)
 
         for i, pid in enumerate(press_ids):
+            mode = self.press_modes.get(pid, "STD")
+            # Determine button colour
+            if self.sel_press == pid:
+                bg = C_SELECTED
+            elif mode == "OVEN":
+                bg = C_OVEN
+            else:
+                bg = C_IDLE
+
             tk.Button(
                 p_grid, text=pid, font=("Segoe UI", 14, "bold"), width=8, height=3,
-                bg=C_SELECTED if self.sel_press == pid else C_IDLE,
+                bg=bg,
                 command=lambda p=pid: self.select_press(p)
             ).grid(row=i // 4, column=i % 4, padx=10, pady=10)
 
@@ -346,10 +398,11 @@ class PC1TouchApp:
                     bg=C_SELECTED if self.sel_daylight == dl else C_IDLE, 
                     command=lambda d=dl: self.select_daylight(d)
                 ).pack(side="left", padx=10)
+
                 
-        # Detailed Plan Confirmation
+        
+        # Inside render_page_1, after the detail_str label:
         if self.plan_data["size"] != "—":
-            # Dynamic color: Purple for POB, Dark Blue for Standard
             card_color = "#5B2C6F" if self.plan_data["is_pob"] else "#0F3460"
             status_text = "✅ POB PLAN LOADED" if self.plan_data["is_pob"] else "✅ PLAN LOADED"
             
@@ -357,16 +410,20 @@ class PC1TouchApp:
             f_plan.pack(fill="x", padx=20, pady=10)
             
             tk.Label(f_plan, text=status_text, fg="#27AE60",
-                     bg=card_color, font=("Segoe UI", 12, "bold")).pack(anchor="w")
+                    bg=card_color, font=("Segoe UI", 12, "bold")).pack(anchor="w")
             
-            # Show Size, Brand, Pattern, and Grade
             detail_str = (f"{self.plan_data['size']} | {self.plan_data['brand']}\n"
-                          f"Pattern: {self.plan_data['pattern']} | Grade: {self.plan_data['quality']}")
+                        f"Pattern: {self.plan_data['pattern']} | Grade: {self.plan_data['quality']}")
             
             tk.Label(f_plan, text=detail_str, fg="white", bg=card_color,
-                     font=("Segoe UI", 11), justify="left").pack(anchor="w", pady=5)
-            
-            self._add_btn("NEXT: BATCHES ➔", self.render_page_2)
+                    font=("Segoe UI", 11), justify="left").pack(anchor="w", pady=5)
+
+            # --- ADD BEAD INFO HERE ---
+            bead_text = f"Bead: {self.targets['bead']}"
+            tk.Label(f_plan, text=bead_text, fg="white", bg=card_color,
+                    font=("Segoe UI", 10)).pack(anchor="w")
+
+            self._add_btn("NEXT: BATCHES ➔", self.render_page_2)    
 
     # =========================================================
     # PAGE 2 — BATCH SELECTION
@@ -437,7 +494,7 @@ class PC1TouchApp:
         canvas, scroll_frame = self._make_scrollable_workspace()
         right = scroll_frame
 
-        # --- Tread Section ---
+        # --- Tread Type Selection ---
         t_f = tk.Frame(right, bg=C_BG); t_f.pack(fill="x", pady=10)
         tk.Label(t_f, text="TREAD TYPE:", fg="white", bg=C_BG, font=("Segoe UI", 12, "bold")).pack(side="left", padx=20)
         for t in ["VT001", "VT002", "VT003", "NMW"]:
@@ -446,6 +503,7 @@ class PC1TouchApp:
                 command=lambda x=t: [self.sel_tread_type.set(x), self.render_page_3()]
             ).pack(side="left", padx=5)
 
+        # --- Tread Batch Tiles ---
         tk.Label(right, text="TREAD BATCH(ES):", fg="white", bg=C_BG, font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=20)
         tb_f = tk.Frame(right, bg=C_BG); tb_f.pack(fill="x", pady=5)
         self._render_tile_grid(tb_f, self.sel_tread_type.get(), self.selected_tread_batches, start_row=0, cols=5)
@@ -454,44 +512,62 @@ class PC1TouchApp:
         if self.plan_data.get("is_pob"):
             pob_f = tk.Frame(right, bg="#2E1A3E", padx=15, pady=10)
             pob_f.pack(fill="x", padx=20, pady=10)
-            
             tk.Label(pob_f, text="MS RIM WEIGHT (KG):", fg="white", bg="#2E1A3E", font=("Segoe UI", 12, "bold")).pack(side="left")
             self.entry_ms_rim = tk.Entry(pob_f, textvariable=self.var_ms_rim_wt, font=("Segoe UI", 24, "bold"), 
-                                         width=8, justify="center", bg="#F5EEF8")
+                                        width=8, justify="center", bg="#F5EEF8")
             self.entry_ms_rim.pack(side="left", padx=20)
-            
-            # Focus Binding for Rim Weight
             self.entry_ms_rim.bind("<FocusIn>", lambda e: setattr(self, 'active_entry_var', self.var_ms_rim_wt))
-            
-            # Note: GUM was already picked on Page 2, but we show summary tiles here for review
+
+            # Show selected gum batches (from page 2)
             tk.Label(right, text="BONDING GUM (PICKED):", fg="#E94560", bg=C_BG, font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=20)
             gum_f = tk.Frame(right, bg=C_BG); gum_f.pack(fill="x", pady=5)
             self._render_tile_grid(gum_f, "GUM", self.selected_gum_batches, start_row=0, cols=6)
 
+        # --- Target Weight Display (NEW) ---
+        target_frame = tk.Frame(right, bg=C_BG)
+        target_frame.pack(fill="x", padx=20, pady=(20, 5))
+        tk.Label(target_frame, text="TARGET WT:", fg="#F39C12", bg=C_BG,
+                font=("Segoe UI", 12, "bold")).pack(side="left")
+        self.lbl_target_wt_finish = tk.Label(target_frame,
+                                            text=f"{self.plan_data['target_wt']:.2f} kg" if self.plan_data['target_wt'] > 0 else "---",
+                                            fg="white", bg=C_BG, font=("Segoe UI", 18, "bold"))
+        self.lbl_target_wt_finish.pack(side="left", padx=10)
+
         # --- Weight Entry & Numpad ---
         bot = tk.Frame(right, bg=C_BG); bot.pack(fill="both", expand=True, pady=10)
         f_entry = tk.Frame(bot, bg=C_BG); f_entry.pack(side="left", padx=20)
-        
-        self.weight_entry = tk.Entry(f_entry, textvariable=self.weight_var, font=("Segoe UI", 36, "bold"), 
-                                     justify="center", width=8, bg="#D5F5E3")
-        self.weight_entry.pack(pady=5)
-        # Focus Binding for Tyre Weight
-        self.weight_entry.bind("<FocusIn>", lambda e: setattr(self, 'active_entry_var', self.weight_var))
-        
 
-        # Numpad buttons (uses the active_entry_var set by focus)
+        self.weight_entry = tk.Entry(f_entry, textvariable=self.weight_var, font=("Segoe UI", 36, "bold"), 
+                                    justify="center", width=8, bg="#D5F5E3")
+        self.weight_entry.pack(pady=5)
+        self.weight_entry.bind("<FocusIn>", lambda e: setattr(self, 'active_entry_var', self.weight_var))
+
+        # Numpad
         num_grid = tk.Frame(f_entry, bg=C_BG); num_grid.pack()
         for idx, k in enumerate(['7','8','9','4','5','6','1','2','3','0','.','CLR']):
             tk.Button(num_grid, text=k, font=("Segoe UI", 16, "bold"), width=4, height=1, bg="#34495E", fg="white",
-                      command=lambda x=k: self.numpad_press(x)).grid(row=idx // 3, column=idx % 3, padx=3, pady=3)
+                    command=lambda x=k: self.numpad_press(x)).grid(row=idx // 3, column=idx % 3, padx=3, pady=3)
 
-        # --- Build Button (Hidden until state logic activates it) ---
+        # --- Build Button (hidden initially) ---
         tk.Frame(self.btn_bar, bg=C_BG).pack(side="left", expand=True, fill="x")
         self._complete_btn = self._add_btn("✅ BUILD COMPLETE", self.finalize_submission, bg="#2ECC71", side="left", width=20)
         tk.Frame(self.btn_bar, bg=C_BG).pack(side="left", expand=True, fill="x")
 
         # Initial validation
         self._update_complete_button_state()
+
+    def _update_update_button_state(self):
+        """Enable/disable the UPDATE & COMPLETE button on the tread update page."""
+        if hasattr(self, '_update_btn') and self._update_btn.winfo_exists():
+            has_tread = len(self.selected_tread_batches) > 0
+            try:
+                has_weight = float(self.weight_var.get()) > 0
+            except ValueError:
+                has_weight = False
+            if has_tread and has_weight:
+                self._update_btn.config(state="normal", bg=C_PROCEED)
+            else:
+                self._update_btn.config(state="disabled", bg="#BDC3C7")
     # =========================================================
     # UPDATE PAGE
     # =========================================================
@@ -505,10 +581,10 @@ class PC1TouchApp:
         right = scroll_frame
 
         tk.Label(right, text="SCAN B-ID BARCODE:", fg="white", bg=C_BG,
-                 font=("Segoe UI", 16, "bold")).pack(anchor="w", padx=20)
+                font=("Segoe UI", 16, "bold")).pack(anchor="w", padx=20)
         entry_bid = tk.Entry(right, textvariable=self.upd_bid_var,
-                             font=("Segoe UI", 28), width=18,
-                             justify="center", bg="#FBFCFC")
+                            font=("Segoe UI", 28), width=18,
+                            justify="center", bg="#FBFCFC")
         entry_bid.pack(pady=15)
         entry_bid.bind("<Return>", self.lookup_partial)
         entry_bid.focus_set()
@@ -517,39 +593,90 @@ class PC1TouchApp:
             right, text="[ Awaiting Barcode Scan ]",
             fg="#BDC3C7", bg=C_BG, font=("Segoe UI", 14, "italic"))
         self.lbl_partial_info.pack(pady=10)
+        if hasattr(self, '_temp_partial_info'):
+            self.lbl_partial_info.config(text=self._temp_partial_info, fg=C_PROCEED)
+            delattr(self, '_temp_partial_info')
 
         t_f = tk.Frame(right, bg=C_BG); t_f.pack(fill="x", pady=10)
         tk.Label(t_f, text="TREAD TYPE:", fg="white", bg=C_BG,
-                 font=("Segoe UI", 12, "bold")).pack(side="left", padx=20)
+                font=("Segoe UI", 12, "bold")).pack(side="left", padx=20)
         for t in ["VT001", "VT002", "VT003", "NMW"]:
             tk.Button(
                 t_f, text=t, font=("Segoe UI", 11, "bold"), width=8,
                 bg=C_SELECTED if self.sel_tread_type.get() == t else C_IDLE,
                 command=lambda x=t: [self.sel_tread_type.set(x),
-                                     self.render_update_tread_page()]
+                                    self.render_update_tread_page()]
             ).pack(side="left", padx=5)
 
         tk.Label(right, text="SELECT TREAD BATCH(ES):", fg="white", bg=C_BG,
-                 font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=20)
+                font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=20)
         tb_f = tk.Frame(right, bg=C_BG); tb_f.pack(fill="x", pady=5)
         self._render_tile_grid(tb_f, self.sel_tread_type.get(),
-                               self.selected_tread_batches, start_row=0, cols=5)
+                            self.selected_tread_batches, start_row=0, cols=5)
 
+            # --- Weight Entry and Numpad ---
         tk.Label(right, text="FINAL GREEN WEIGHT (KG):", fg="white", bg=C_BG,
-                 font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=20, pady=(10, 0))
-        self.weight_entry = tk.Entry(right, textvariable=self.weight_var,
-                                      font=("Segoe UI", 28, "bold"), justify="center",
-                                      width=10, bg="#D5F5E3")
-        self.weight_entry.pack(pady=5)
+                font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=20, pady=(10, 0))
 
-        # Add the UPDATE button (centered as well)
+        self._clean_weight_traces()
+
+         # Trace for button state
+        self._weight_trace_id = self.weight_var.trace_add(
+            "write", lambda *args: self._update_update_button_state()
+        )
+        # Trace for highlighting
+        self._weight_highlight_id = self.weight_var.trace_add(
+            "write", lambda *args: self._highlight_weight_entry()
+        )
+
+        # Initial updates
+        self._update_update_button_state()
+        self._highlight_weight_entry()
+
+
+        # Container for entry and numpad
+        weight_frame = tk.Frame(right, bg=C_BG)
+        weight_frame.pack(fill="x", padx=20, pady=5)
+
+        self.weight_entry = tk.Entry(weight_frame, textvariable=self.weight_var,
+                                    font=("Segoe UI", 36, "bold"), justify="center",
+                                    width=8, bg="#D5F5E3")
+        self.weight_entry.pack(side="left", padx=(0, 20))
+        self.weight_entry.bind("<FocusIn>", lambda e: setattr(self, 'active_entry_var', self.weight_var))
+
+        # Numpad
+        num_grid = tk.Frame(weight_frame, bg=C_BG)
+        num_grid.pack(side="left")
+        for idx, k in enumerate(['7','8','9','4','5','6','1','2','3','0','.','CLR']):
+            tk.Button(num_grid, text=k, font=("Segoe UI", 16, "bold"), width=4, height=1,
+                    bg="#34495E", fg="white",
+                    command=lambda x=k: self.numpad_press(x)).grid(
+                        row=idx // 3, column=idx % 3, padx=3, pady=3)
+
+        # Target weight display
+        target_frame = tk.Frame(right, bg=C_BG)
+        target_frame.pack(fill="x", padx=20, pady=5)
+        tk.Label(target_frame, text="TARGET WT:", fg="#F39C12", bg=C_BG,
+                font=("Segoe UI", 12, "bold")).pack(side="left")
+        self.lbl_target_wt_update = tk.Label(target_frame,
+                                            text=f"{self.plan_data['target_wt']:.2f} kg" if self.plan_data['target_wt'] > 0 else "---",
+                                            fg="white", bg=C_BG, font=("Segoe UI", 18, "bold"))
+        self.lbl_target_wt_update.pack(side="left", padx=10)
+
+            # Add the UPDATE button to the bottom bar
         tk.Frame(self.btn_bar, bg=C_BG).pack(side="left", expand=True, fill="x")
-        self._add_btn("💾 UPDATE & COMPLETE", self.submit_tread_update, side="left", width=20)
+        self._update_btn = self._add_btn("💾 UPDATE & COMPLETE", self.submit_tread_update, side="left", width=20)
         tk.Frame(self.btn_bar, bg=C_BG).pack(side="left", expand=True, fill="x")
 
-        # Trace weight changes for highlighting (optional on this page)
+        # Trace weight changes to update button state
+        self.weight_var.trace_add("write", lambda *args: self._update_update_button_state())
+        # Initial state (disabled)
+        self._update_update_button_state()
+
+        # Continue with weight highlighting...
         self.weight_var.trace_add("write", lambda *args: self._highlight_weight_entry())
         self._highlight_weight_entry()
+
 
     # =========================================================
     # TILE GRID — recolor only, never re-renders page
@@ -583,6 +710,8 @@ class PC1TouchApp:
             if self.current_page == PAGE_FINISH:
                 self._update_complete_button_state()
 
+            elif self.current_page == PAGE_UPDATE:
+                self._update_update_button_state()
         for i, b_no in enumerate(batches):
             btn = tk.Button(
                 parent, text=b_no, font=("Segoe UI", 10, "bold"),
@@ -596,6 +725,7 @@ class PC1TouchApp:
 
         return start_row + (len(batches) + cols - 1) // cols
         
+        
     # =========================================================
     # PRESS & PLAN LOGIC
     # =========================================================
@@ -607,37 +737,111 @@ class PC1TouchApp:
                 "target_wt": 0.0, "type": "—", "is_pob": False, "pi_number": None
             }
         self.sel_press = p_id
-        self.render_page_1()
+        
+        # Check if it's an Oven to show the slot grid
+        if "OVEN" in p_id.upper():
+            self.render_oven_slot_page()
+        else:
+            self.render_page_1()
 
-    def select_daylight(self, dl_id):
+    def render_oven_slot_page(self):
+        self.current_page = PAGE_MACHINE
+        self._clear_workspace()
+        self._clear_btn_bar()
+        self._refresh_sidebar(f"SELECT {self.sel_press} SLOT")
+
+        canvas, scroll_frame = self._make_scrollable_workspace()
+        f_grid = tk.Frame(scroll_frame, bg=C_BG)
+        f_grid.pack(pady=20, padx=20)
+
+        # Fetch all planned slots for this specific Oven from the database
+        q = """SELECT daylight, tyre_size, brand, quality 
+            FROM production_plan 
+            WHERE press_id = %s ORDER BY daylight"""
+        planned_slots = DBManager.fetch_data(q, (self.sel_press,))
+
+        if not planned_slots:
+            tk.Label(f_grid, text="⚠️ NO SLOTS PLANNED FOR THIS OVEN", 
+                    fg="orange", bg=C_BG, font=("Segoe UI", 14, "bold")).pack()
+            return
+
+        # 2‑column grid layout (rows automatically adjust)
+        cols = 2
+        for i, (slot, size, brand, qual) in enumerate(planned_slots):
+            row = i // cols
+            col = i % cols
+
+            btn_text = f"{slot}\n{size}\n{brand}"
+            btn = tk.Button(f_grid, text=btn_text, font=("Segoe UI", 11, "bold"),
+                            width=15, height=5,
+                            bg=C_SELECTED if self.sel_daylight == slot else C_IDLE,
+                            fg="black",
+                            command=lambda s=slot: self.select_oven_slot(s))
+
+            btn.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+            f_grid.columnconfigure(col, weight=1)
+
+        # --- SINGLE PLAN LOADED BOX (with bead info) ---
+        if self.plan_data["size"] != "—":
+            card_color = "#5B2C6F" if self.plan_data["is_pob"] else "#0F3460"
+            status_text = "✅ POB PLAN LOADED" if self.plan_data["is_pob"] else "✅ PLAN LOADED"
+            
+            f_plan = tk.Frame(scroll_frame, bg=card_color, padx=15, pady=15)
+            f_plan.pack(fill="x", padx=20, pady=10)
+            
+            tk.Label(f_plan, text=status_text, fg="#27AE60",
+                    bg=card_color, font=("Segoe UI", 12, "bold")).pack(anchor="w")
+            
+            detail_str = (f"{self.plan_data['size']} | {self.plan_data['brand']}\n"
+                        f"Pattern: {self.plan_data['pattern']} | Grade: {self.plan_data['quality']}")
+            
+            tk.Label(f_plan, text=detail_str, fg="white", bg=card_color,
+                    font=("Segoe UI", 11), justify="left").pack(anchor="w", pady=5)
+
+            # --- BEAD INFO (new line) ---
+            bead_text = f"Bead: {self.targets['bead']}"
+            tk.Label(f_plan, text=bead_text, fg="white", bg=card_color,
+                    font=("Segoe UI", 10)).pack(anchor="w")
+
+        # --- Next Button (only if a slot is selected) ---
+        if self.sel_daylight:
+            self._add_btn("NEXT: BATCHES ➔", self.proceed_from_oven_slot)
+
+    def proceed_from_oven_slot(self):
+        """Go to the batches page (plan already loaded)."""
+        self.render_page_2()
+
+    def select_oven_slot(self, slot):
+        """Select a slot on the oven page – loads plan and updates display without navigating."""
+        self.select_daylight(slot, navigate=False)
+        # Re‑render the oven page to show the plan confirmation box
+        self.render_oven_slot_page()
+
+    def proceed_from_oven_slot(self):
+        """After a slot is selected, fetch plan and go to page 2."""
+        if self.sel_daylight and self.fetch_plan_details():
+            self.render_page_2()        
+
+    def select_daylight(self, dl_id, navigate=True):
         self.sel_daylight = dl_id
-        self.fetch_plan_details()
+        if self.fetch_plan_details():
+            if navigate:
+                if "OVEN" in self.sel_press.upper():
+                    self.render_page_2()
+                else:
+                    self.render_page_1()
+        # If navigate is False, do nothing – caller will re-render the oven page.
 
     def fetch_plan_details(self):
-        """Standardized fetch using 'BOT'."""
-        # Ensure daylight is always 'BOT' before searching
-        dl_query = self.sel_daylight.strip().upper() 
-        
-        q = """SELECT tyre_size, brand, pattern, quality, mould_id_marks, type, 
-                      tyre_weight, pi_number 
-               FROM production_plan 
-               WHERE TRIM(press_id)=%s AND TRIM(daylight)=%s LIMIT 1"""
-               
-        res = DBManager.fetch_data(q, (self.sel_press, dl_query))
-
-        """Automated Job Card fetching with POB detection."""
-        res = DBManager.fetch_data(
-            """SELECT tyre_size, brand, pattern, quality, mould_id_marks, type, 
-                      tyre_weight, core_size, production_requirement, pi_number 
-               FROM production_plan 
-               WHERE TRIM(press_id)=%s AND TRIM(daylight)=%s LIMIT 1""",
-            (self.sel_press, self.sel_daylight)
-        )
+        """Fetch plan details and update self.plan_data. Returns True if found."""
+        q = """SELECT tyre_size, brand, pattern, quality, mould_id_marks, type,
+                    tyre_weight, core_size, production_requirement, pi_number, produced_qty
+            FROM production_plan
+            WHERE TRIM(press_id)=%s AND TRIM(daylight)=%s LIMIT 1"""
+        res = DBManager.fetch_data(q, (self.sel_press, self.sel_daylight))
         if res:
             r = res[0]
-            # POB Logic: Detect based on 'type' string
             is_pob_detected = "POB" in str(r[5]).upper()
-            
             self.plan_data.update({
                 "size":      r[0] if r[0] else "—",
                 "brand":     r[1] if r[1] else "—",
@@ -646,18 +850,20 @@ class PC1TouchApp:
                 "mould":     r[4] if r[4] else "—",
                 "type":      r[5] if r[5] else "—",
                 "target_wt": float(r[6] or 0.0),
-                "is_pob":    is_pob_detected,
-                "pi_number":  r[9]
+                "core_size": r[7] if r[7] else "—",
+                "production_requirement": int(r[8] or 0),
+                "pi_number": r[9],
+                "produced_qty": int(r[10] or 0),
+                "is_pob":    is_pob_detected
             })
-            
-            # Calculate targets (this will now skip beads if POB is True)
             self.calculate_material_targets()
-            self.render_page_1()
+            return True
         else:
             messagebox.showwarning(
                 "No Plan",
                 f"No production plan for {self.sel_press} / {self.sel_daylight}.",
                 parent=self.root)
+            return False
 
     def calculate_material_targets(self):
         grade = self.plan_data["quality"]
@@ -734,6 +940,32 @@ class PC1TouchApp:
                     return
                 status = "PARTIAL"
 
+        # Increment produced_qty in production_plan
+        DBManager.execute_query(
+            "UPDATE production_plan SET produced_qty = produced_qty + 1 WHERE press_id=%s AND daylight=%s",
+            (self.sel_press, self.sel_daylight)
+        )
+
+        # If this order has a PI number, also update master_orders
+        if self.plan_data.get('pi_number'):
+            DBManager.execute_query(
+                "UPDATE master_orders SET produced_qty = produced_qty + 1 WHERE pi_number=%s",
+                (self.plan_data['pi_number'],)
+            )
+
+        # Refresh local plan data (or increment locally)
+        self.plan_data['produced_qty'] = self.plan_data.get('produced_qty', 0) + 1
+
+        # Update sidebar immediately
+        self._refresh_sidebar(self._sb_title.cget("text"))
+
+        # Check if target reached
+        remaining = self.plan_data['production_requirement'] - self.plan_data['produced_qty']
+        if remaining <= 0:
+            messagebox.showinfo("Target Achieved",
+                                f"Production target for {self.sel_press}-{self.sel_daylight} has been met!",
+                                parent=self.root)        
+
         # 4. Target Weight Validation (15% Tolerance)
         if status == "COMPLETED":
             # Combined target for POB; Standard target for others
@@ -766,7 +998,7 @@ class PC1TouchApp:
             self.sel_press, 
             self.sel_daylight, # Now standardized as BOT, TOP, or SINGLE
             self.plan_data["size"], 
-            self.plan_data["core"],
+            self.plan_data.get("core_size", "—"),
             self.plan_data["brand"], 
             self.plan_data["quality"],
             self.plan_data.get("pattern", "—"), 
@@ -792,7 +1024,7 @@ class PC1TouchApp:
             self.print_label(*self.last_print_data)
 
             # Print label using correct press-daylight strings
-            self.print_label(bid, self.plan_data["size"], self.sel_press, self.sel_daylight)
+            # self.print_label(bid, self.plan_data["size"], self.sel_press, self.sel_daylight)
             messagebox.showinfo("Saved ✅", f"B-ID: {bid}\nStatus: {status}", parent=self.root)
             self.reset_workflow()
         else:
@@ -842,48 +1074,60 @@ class PC1TouchApp:
         bid = self.upd_bid_var.get().strip().upper()
         if not bid: return
         q = """SELECT b.tyre_size, b.quality, b.status, pp.tyre_weight
-               FROM pc1_building b
-               LEFT JOIN production_plan pp
-                      ON TRIM(pp.press_id)=TRIM(b.press_id)
-                     AND TRIM(pp.daylight) =TRIM(b.daylight)
-               WHERE b.b_id=%s AND b.status='PARTIAL' LIMIT 1"""
+            FROM pc1_building b
+            LEFT JOIN production_plan pp
+                    ON TRIM(pp.press_id)=TRIM(b.press_id)
+                    AND TRIM(pp.daylight) =TRIM(b.daylight)
+            WHERE b.b_id=%s AND b.status='PARTIAL' LIMIT 1"""
         res = DBManager.fetch_data(q, (bid,))
         if res:
+            # Clear previous selections
+            self.selected_tread_batches = []
+            self.weight_var.set("")
+            # Update plan data
             self.plan_data.update({
                 "size":      res[0][0],
                 "quality":   res[0][1] or "—",
                 "target_wt": float(res[0][3] or 0)
             })
             self.calculate_material_targets()
-            self._refresh_sidebar("TREAD UPDATE", prev_command=self.render_page_1)
-            self.lbl_partial_info.config(
-                text=f"✅ FOUND: {res[0][0]}  |  {res[0][1]}", fg=C_PROCEED)
-            self.upd_bid_var.set(bid)
+            # Store a temporary message to show on the re‑rendered page
+            self._temp_partial_info = f"✅ FOUND: {res[0][0]}  |  {res[0][1]}"  
+            # Re‑render the update page to reset tiles and show the new tyre
+            self.render_update_tread_page()
         else:
             self.lbl_partial_info.config(
                 text=f"❌ NOT FOUND (must be PARTIAL): {bid}", fg=C_SELECTED)
             self.upd_bid_var.set("")
 
+
     # =========================================================
     # RESET
     # =========================================================
     def reset_workflow(self):
-        self.sel_press = ""; self.sel_daylight = ""
+        self._clean_weight_traces()
+        self.sel_press = ""
+        self.sel_daylight = ""
         self.plan_data = {
-            "size": "—", "core": "—", "brand": "—", "quality": "—",
+            "size": "—", "core_size": "—", "brand": "—", "quality": "—",
             "target_wt": 0.0, "type": "—", "is_pob": False, "pi_number": None
         }
-        self.targets = {"core":0.0,"mid":0.0,"ct":0.0,
-                        "gum":0.0,"tread":0.0,"bead":"—"}
+        self.targets = {"core":0.0, "mid":0.0, "ct":0.0,
+                        "gum":0.0, "tread":0.0, "bead":"—"}
         self.selected_core_batches  = []
         self.selected_mid_batches   = []
         self.selected_tread_batches = []
         self.selected_gum_batches   = []
-        self.var_ms_rim_wt.set("0")     # Reset Rim Weight to 0
+        self.var_ms_rim_wt.set("0")
         self.weight_var.set("")
-        self.active_entry_var = self.weight_var  # Reset focus to Tyre Weight
+        self.active_entry_var = self.weight_var
         self.upd_bid_var.set("")
         self.render_page_1()
+        self.plan_data.update({
+            "production_requirement": 0,
+            "produced_qty": 0
+        })
+        self._refresh_sidebar(self._sb_title.cget("text"))
 
     # =========================================================
     # UTILS
@@ -941,20 +1185,21 @@ class PC1TouchApp:
                 
     def _highlight_weight_entry(self):
         """Change weight entry background based on tolerance."""
-        if not hasattr(self, 'weight_entry'):
+        # Guard: if weight_entry doesn't exist or was destroyed, do nothing
+        if not hasattr(self, 'weight_entry') or not self.weight_entry.winfo_exists():
             return
         try:
-            actual = float(self.weight_var.get())
-            tgt = self.plan_data["target_wt"]
+            actual = float(self.weight_var.get() or 0)
+            tgt = self.plan_data.get("target_wt", 0)
             if tgt > 0:
                 lo, hi = tgt * 0.85, tgt * 1.15
                 if lo <= actual <= hi:
-                    self.weight_entry.config(bg="#D5F5E3")  # light green
+                    self.weight_entry.config(bg="#D5F5E3")
                 else:
-                    self.weight_entry.config(bg="#FADBD8")  # light red
+                    self.weight_entry.config(bg="#FADBD8")
             else:
                 self.weight_entry.config(bg="#D5F5E3")
-        except:
+        except ValueError:
             self.weight_entry.config(bg="#D5F5E3")
 
     def numpad_press(self, key):

@@ -77,6 +77,7 @@ class GlobalDashboard:
             "B-ID", "Serial", "Size", "Brand", "Target Grade", "PC1 Status",
             "Built At", "Builder", "Tread Batch", "Core Batch", "Green Wt",
             "Cured At", "Curing Op", "Press", "Mould", "Cured Wt", "Flash",
+            "PC2 QC Status", 
             "QC At", "Inspector", "QC Grade", "Core Hard", "Tread Hard", 
             "Defects", "QC Remarks", "Customer", "Despatch Date"
         )
@@ -158,6 +159,11 @@ class GlobalDashboard:
                 b.b_id, COALESCE(c.serial_no, 'PENDING'), b.tyre_size, b.brand, b.quality, b.status,
                 TO_CHAR(b.created_at, 'YYYY-MM-DD HH24:MI'), b.operator_id, b.batch_tread, b.batch_core, b.green_tyre_weight,
                 TO_CHAR(c.end_time, 'YYYY-MM-DD HH24:MI'), c.operator_name, c.press_no, c.mould_no, c.final_cured_weight, c.flash_waste,
+                CASE 
+                    WHEN c.status = 'DONE' THEN 'DONE'
+                    WHEN c.status = 'COOLING' THEN 'PENDING'
+                    ELSE 'N/A'
+                END as pc2_qc_status,
                 TO_CHAR(q.inspected_at, 'YYYY-MM-DD HH24:MI'), q.inspector_name, q.grade, 
                 (COALESCE(q.hardness_core_min,0) || '-' || COALESCE(q.hardness_core_max,0)), 
                 (COALESCE(q.hardness_tread_min,0) || '-' || COALESCE(q.hardness_tread_max,0)), 
@@ -175,15 +181,17 @@ class GlobalDashboard:
 
     def show_digital_passport(self, event):
         item = self.tree_det.selection()
-        if not item: return
+        if not item:
+            return
         data = self.tree_det.item(item[0])['values']
-        
+
         pop = tk.Toplevel(self.root)
         pop.title(f"Digital Passport: {data[1]}")
-        pop.geometry("600x850")
+        pop.geometry("600x900")
         pop.configure(bg="white")
-        
-        header_color = "#27AE60" if data[19] == "A-GRADE" else "#E74C3C"
+
+        # Determine header color based on QC grade (now at index 20)
+        header_color = "#27AE60" if data[20] == "A-GRADE" else "#E74C3C"
         f_head = tk.Frame(pop, bg=header_color, pady=15)
         f_head.pack(fill="x")
         tk.Label(f_head, text="TYRE DIGITAL PASSPORT", font=("Segoe UI", 16, "bold"), fg="white", bg=header_color).pack()
@@ -203,20 +211,31 @@ class GlobalDashboard:
             tk.Label(row, text=val, font=("Segoe UI", 10), fg="#2C3E50", bg="white").pack(side="left")
 
         add_section("1. BUILDING DETAILS (PC1)")
-        add_field("B-ID", data[0]); add_field("Size", data[2]); add_field("Brand", data[3])
-        add_field("Built Time", data[6]); add_field("Green Wt", f"{data[10]} kg")
+        add_field("B-ID", data[0])
+        add_field("Size", data[2])
+        add_field("Brand", data[3])
+        add_field("Built Time", data[6])
+        add_field("Green Wt", f"{data[10]} kg")
 
         add_section("2. CURING DETAILS (PC2)")
-        add_field("Cured Time", data[11]); add_field("Press/Mould", f"{data[13]} / {data[14]}")
-        add_field("Final Wt", f"{data[15]} kg"); add_field("Flash", f"{data[16]} kg")
+        add_field("Cured Time", data[11])
+        add_field("Press/Mould", f"{data[13]} / {data[14]}")
+        add_field("Final Wt", f"{data[15]} kg")
+        add_field("Flash", f"{data[16]} kg")
+        add_field("PC2 QC Status", data[17])          # ← new field
 
         add_section("3. QUALITY CONTROL (PC3)")
-        add_field("Grade", data[19]); add_field("Hardness", f"C:{data[20]} T:{data[21]}")
-        add_field("Defects", data[22]); add_field("Remarks", data[23])
+        add_field("QC At", data[18])                  # shifted
+        add_field("Inspector", data[19])              # shifted
+        add_field("Grade", data[20])                  # shifted
+        add_field("Hardness", f"C:{data[21]} T:{data[22]}")
+        add_field("Defects", data[23])
+        add_field("Remarks", data[24])
 
         add_section("4. LOGISTICS & DESPATCH")
-        add_field("Customer", data[24]); add_field("Despatch Date", data[25])
-        status = "🚚 SHIPPED" if data[25] != "WAREHOUSE" else "📦 IN WAREHOUSE"
+        add_field("Customer", data[25])
+        add_field("Despatch Date", data[26])
+        status = "🚚 SHIPPED" if data[26] != "WAREHOUSE" else "📦 IN WAREHOUSE"
         add_field("Status", status)
 
     def export_global_csv(self):
